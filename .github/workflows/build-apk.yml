@@ -1,0 +1,50 @@
+name: Build Debug APK
+
+# 触发方式：
+#   1) 推送一个 tag（如 v1.0）会自动发 Release 并附上 APK
+#   2) 在仓库 Actions 页面点 "Run workflow" 手动触发，APK 以 artifact 形式提供下载
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Gradle 8.6 (绕过仓库缺少 wrapper jar 的问题)
+        run: |
+          curl -L -o gradle.zip https://services.gradle.org/distributions/gradle-8.6-bin.zip
+          unzip -q gradle.zip
+          echo "$PWD/gradle-8.6/bin" >> "$GITHUB_PATH"
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK to Release (tag 触发时)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload APK as artifact (手动触发时)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
