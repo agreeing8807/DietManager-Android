@@ -1,0 +1,22 @@
+package com.example.diet.data.repository
+
+import com.example.diet.data.local.dao.WaterDao
+import com.example.diet.data.local.entity.WaterRecord
+import kotlinx.coroutines.flow.Flow
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class WaterRepository @Inject constructor(
+    private val dao: WaterDao
+) {
+    fun observeByDate(date: String): Flow<List<WaterRecord>> = dao.observeByDate(date)
+
+    fun observeVolumeByDate(date: String): Flow<Int> = dao.observeVolumeByDate(date)
+
+    fun observeCaloriesByDate(date: String): Flow<Int> = dao.observeCaloriesByDate(date)
+
+    suspend fun addWater(record: WaterRecord): Long = dao.insert(record)
+
+    suspend fun deleteWater(record: WaterRecord) = dao.delete(record)
+}

@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">饮食管理</string>
+    <string name="nav_dashboard">首页</string>
+    <string name="nav_meal">记录</string>
+    <string name="nav_analysis">分析</string>
+    <string name="nav_settings">设置</string>
+    <string name="empty_state">暂无记录，点击下方按钮开始</string>
+</resources>
