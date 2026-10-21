@@ -39,7 +39,7 @@ jobs:
           echo "$PWD/gradle-8.6/bin" >> "$GITHUB_PATH"
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK to Release (tag 触发时)
         if: startsWith(github.ref, 'refs/tags/')
