@@ -7,11 +7,12 @@ import com.example.diet.data.repository.AnalysisRepository
 import com.example.diet.data.repository.MealRepository
 import com.example.diet.data.repository.ProfileRepository
 import com.example.diet.domain.model.FoodSuggestion
-import com.example.diet.domain.model.UserProfile
+import com.example.diet.data.local.entity.UserProfile
 import com.example.diet.util.DateUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn

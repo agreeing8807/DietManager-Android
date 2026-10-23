@@ -70,8 +70,8 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                     Text("个人资料与目标", style = MaterialTheme.typography.titleLarge)
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chip("男", selected = p.gender == Gender.MALE) { viewModel.updateProfile { copy(gender = Gender.MALE) } }
-                        Chip("女", selected = p.gender == Gender.FEMALE) { viewModel.updateProfile { copy(gender = Gender.FEMALE) } }
+                        Chip("男", selected = p.gender == Gender.MALE, onClick = { viewModel.updateProfile { copy(gender = Gender.MALE) } })
+                        Chip("女", selected = p.gender == Gender.FEMALE, onClick = { viewModel.updateProfile { copy(gender = Gender.FEMALE) } })
                     }
 
                     NumberField("年龄", p.age.toString()) { viewModel.updateProfile { copy(age = it) } }
@@ -120,7 +120,7 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                     Text("选择厂商并填写你自己的 API Key（仅保存在本机加密存储）", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         state.vendors.forEach { v ->
-                            Chip(v.name, selected = v.id == state.selectedVendorId) { viewModel.selectVendor(v.id) }
+                            Chip(v.name, selected = v.id == state.selectedVendorId, onClick = { viewModel.selectVendor(v.id) })
                         }
                     }
                     OutlinedTextField(

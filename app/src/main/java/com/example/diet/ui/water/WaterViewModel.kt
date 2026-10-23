@@ -7,7 +7,7 @@ import com.example.diet.data.repository.ProfileRepository
 import com.example.diet.data.repository.WaterRepository
 import com.example.diet.domain.NutritionCalculator
 import com.example.diet.domain.model.DrinkType
-import com.example.diet.domain.model.UserProfile
+import com.example.diet.data.local.entity.UserProfile
 import com.example.diet.util.DateUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted

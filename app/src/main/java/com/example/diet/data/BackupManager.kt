@@ -13,6 +13,7 @@ import com.example.diet.data.local.entity.WaterRecord
 import com.example.diet.data.local.entity.WeightRecord
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.text.SimpleDateFormat
