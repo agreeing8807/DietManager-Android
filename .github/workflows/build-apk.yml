@@ -12,6 +12,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 允许 GITHUB_TOKEN 创建/更新 Release（默认只有 read 权限，会导致 403）
+    permissions:
+      contents: write
     # 关键：把两个 SDK 环境变量统一指向 runner 自带的 Android SDK，避免路径冲突
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
