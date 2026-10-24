@@ -23,13 +23,37 @@ android {
         }
     }
 
+    // 固定签名：CI 通过环境变量注入 keystore（GitHub Secrets）。
+    // 未配置时回退为默认 debug 签名，不影响本地构建。
+    signingConfigs {
+        create("fixed") {
+            val ksPath = System.getenv("RELEASE_KEYSTORE_PATH")
+            if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        getByName("debug") {
+            val ksPath = System.getenv("RELEASE_KEYSTORE_PATH")
+            if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                signingConfig = signingConfigs.getByName("fixed")
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            val ksPath = System.getenv("RELEASE_KEYSTORE_PATH")
+            if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                signingConfig = signingConfigs.getByName("fixed")
+            }
         }
     }
 

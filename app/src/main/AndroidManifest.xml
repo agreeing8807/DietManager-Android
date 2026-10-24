@@ -4,6 +4,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- CAMERA：ACTION_IMAGE_CAPTURE 若声明此权限则必须在运行时申请，否则会抛 SecurityException。
+         应用内已改为拍照前主动申请 CAMERA 权限。 -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />

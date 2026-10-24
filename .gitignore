@@ -1,0 +1,17 @@
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+/build/
+app/build/
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 签名文件：绝对不要提交到仓库
+release.jks
+*.jks
+*.keystore
+release_base64.txt

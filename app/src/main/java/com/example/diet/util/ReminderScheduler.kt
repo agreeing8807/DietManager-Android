@@ -13,6 +13,18 @@ object ReminderScheduler {
     const val ACTION = "com.example.diet.REMINDER"
     private const val REQ_BASE = 10000
 
+    private const val PREFS = "reminder_prefs"
+    private const val KEY_EXACT = "use_exact_alarm"
+
+    /** 用户是否选择使用“精确闹钟”（更准时，但 Android 12+ 需授权） */
+    fun isExactAlarmPreferred(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_EXACT, false)
+
+    fun setExactAlarmPreferred(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_EXACT, enabled).apply()
+    }
+
     private fun pendingIntent(context: Context, id: Long): PendingIntent {
         val intent = Intent(context, ReminderBroadcastReceiver::class.java).apply {
             action = ACTION
@@ -39,12 +51,15 @@ object ReminderScheduler {
     fun schedule(context: Context, setting: ReminderSetting) {
         if (!setting.enabled) return
         val alarm = context.getSystemService(AlarmManager::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) return
-        alarm.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            nextTrigger(setting.timeMinutesOfDay),
-            pendingIntent(context, setting.id)
-        )
+        val triggerAt = nextTrigger(setting.timeMinutesOfDay)
+        val pi = pendingIntent(context, setting.id)
+        val exactAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarm.canScheduleExactAlarms()
+        if (isExactAlarmPreferred(context) && exactAllowed) {
+            alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        } else {
+            // 用户关闭精确闹钟，或未授予权限时，使用非精确闹钟：无需权限，Doze 下仍可触发（误差几分钟）
+            alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        }
     }
 
     fun cancel(context: Context, id: Long) {

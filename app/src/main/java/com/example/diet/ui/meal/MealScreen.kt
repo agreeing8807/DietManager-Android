@@ -1,5 +1,7 @@
 package com.example.diet.ui.meal
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.diet.domain.model.MealType
@@ -58,6 +61,7 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
     var description by remember { mutableStateOf("") }
     var captured by remember { mutableStateOf<ByteArray?>(null) }
     var preview by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? ->
         bitmap?.let {
@@ -66,6 +70,23 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
             captured = stream.toByteArray()
             preview = it.asImageBitmap()
             // 不能 recycle：preview 仍持有该 Bitmap 用于显示，回收会导致 Canvas 绘制已回收 Bitmap 而崩溃
+        }
+    }
+
+    val launchCamera = {
+        try {
+            cameraLauncher.launch(null)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(context, "无法打开相机：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // 拍照前主动申请 CAMERA 权限：声明了 CAMERA 却未授权时，ACTION_IMAGE_CAPTURE 会抛 SecurityException
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            launchCamera()
+        } else {
+            android.widget.Toast.makeText(context, "未授予相机权限，无法拍照", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -96,7 +117,13 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
         Spacer(Modifier.height(8.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { cameraLauncher.launch(null) }) {
+            TextButton(onClick = {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    launchCamera()
+                } else {
+                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            }) {
                 Icon(Icons.Filled.CameraAlt, contentDescription = null)
                 Spacer(Modifier.size(4.dp))
                 Text(if (preview != null) "已拍摄（重拍）" else "拍照分析")

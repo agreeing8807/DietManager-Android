@@ -1,8 +1,10 @@
 package com.example.diet.ui.water
 
+import android.Manifest
 import android.app.AlarmManager
 import android.app.TimePickerDialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -34,16 +36,21 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.example.diet.data.local.entity.ReminderSetting
 import com.example.diet.util.DateUtils
+import com.example.diet.util.ReminderScheduler
 import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,6 +59,7 @@ fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewMode
     val reminders by viewModel.reminders.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val allEnabled = reminders.isNotEmpty() && reminders.all { it.enabled }
+    var exactPreferred by remember { mutableStateOf(ReminderScheduler.isExactAlarmPreferred(context)) }
 
     Scaffold(
         topBar = {
@@ -68,15 +76,27 @@ fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewMode
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             val alarm = context.getSystemService(AlarmManager::class.java)
             val needsExactPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()
-            if (needsExactPermission) {
+            val notificationsEnabled = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            if (!notificationsEnabled || (exactPreferred && needsExactPermission)) {
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("未授予“精确闹钟”权限，提醒可能无法准时触发。", style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = {
-                            context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = Uri.fromParts("package", context.packageName, null)
-                            })
-                        }) { Text("去开启权限") }
+                        if (!notificationsEnabled) {
+                            Text("未开启通知权限，提醒将无法弹出。", style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = {
+                                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                })
+                            }) { Text("去开启通知") }
+                        }
+                        if (exactPreferred && needsExactPermission) {
+                            Text("未授予“精确闹钟”权限，提醒可能误差几分钟（已降级为非精确闹钟，仍会触发）。", style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = {
+                                context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                })
+                            }) { Text("去开启精确闹钟") }
+                        }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -88,6 +108,35 @@ fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewMode
             ) {
                 Text("启用全部提醒", style = MaterialTheme.typography.titleMedium)
                 Switch(checked = allEnabled, onCheckedChange = { viewModel.toggleAll(it) })
+            }
+            Spacer(Modifier.height(12.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("使用精确闹钟", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "更准时（需授予精确闹钟权限）；关闭则可能误差几分钟但无需授权",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = exactPreferred,
+                    onCheckedChange = { checked ->
+                        exactPreferred = checked
+                        ReminderScheduler.setExactAlarmPreferred(context, checked)
+                        if (checked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
+                            context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                            })
+                        }
+                        viewModel.reschedule()
+                    }
+                )
             }
             Spacer(Modifier.height(12.dp))
 
