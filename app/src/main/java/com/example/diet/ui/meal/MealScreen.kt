@@ -65,7 +65,7 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
             it.compress(Bitmap.CompressFormat.JPEG, 80, stream)
             captured = stream.toByteArray()
             preview = it.asImageBitmap()
-            it.recycle() // 分析后释放，不落盘
+            // 不能 recycle：preview 仍持有该 Bitmap 用于显示，回收会导致 Canvas 绘制已回收 Bitmap 而崩溃
         }
     }
 

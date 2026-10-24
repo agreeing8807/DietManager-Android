@@ -1,6 +1,11 @@
 package com.example.diet.ui.water
 
+import android.app.AlarmManager
 import android.app.TimePickerDialog
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,6 +66,21 @@ fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewMode
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+            val alarm = context.getSystemService(AlarmManager::class.java)
+            val needsExactPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()
+            if (needsExactPermission) {
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("未授予“精确闹钟”权限，提醒可能无法准时触发。", style = MaterialTheme.typography.bodyMedium)
+                        TextButton(onClick = {
+                            context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                            })
+                        }) { Text("去开启权限") }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
