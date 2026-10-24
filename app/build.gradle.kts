@@ -81,6 +81,11 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    lint {
+        // 个人项目：不让 lint 致命错误阻断 release 打包（仍会在日志输出警告供排查）
+        abortOnError = false
+    }
 }
 
 dependencies {

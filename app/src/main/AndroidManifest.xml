@@ -47,6 +47,19 @@
         <receiver
             android:name=".receiver.ReminderBroadcastReceiver"
             android:exported="false" />
+
+        <!-- DietApp 实现 Configuration.Provider（WorkManager 按需初始化），
+             需移除默认 InitializationProvider 里的 WorkManagerInitializer，否则 release lint 致命报错 -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
     </application>
 
 </manifest>
