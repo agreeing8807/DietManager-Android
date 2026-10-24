@@ -6,6 +6,8 @@ import android.security.keystore.KeyProperties
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -56,5 +58,49 @@ class ApiKeyStore @Inject constructor(
 
     fun setSetting(name: String, value: String) {
         prefs.edit().putString("setting_$name", value).apply()
+    }
+
+    // ---------------- 多条目 API 管理 ----------------
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun entriesKey() = "setting_api_entries"
+    private fun selectedEntryKey() = "setting_selected_entry"
+
+    fun getEntries(): List<ApiEntry> {
+        val raw = prefs.getString(entriesKey(), null) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<ApiEntry>>(raw) }.getOrDefault(emptyList())
+    }
+
+    private fun setEntries(entries: List<ApiEntry>) {
+        prefs.edit().putString(entriesKey(), json.encodeToString(entries)).apply()
+    }
+
+    /** 添加一条 API，并把最新添加的设为当前使用 */
+    fun addEntry(entry: ApiEntry) {
+        val list = getEntries().toMutableList()
+        list.add(entry)
+        setEntries(list)
+        prefs.edit().putString(selectedEntryKey(), entry.id).apply()
+    }
+
+    fun deleteEntry(id: String) {
+        val list = getEntries().filterNot { it.id == id }
+        setEntries(list)
+        if (prefs.getString(selectedEntryKey(), null) == id) {
+            prefs.edit().putString(selectedEntryKey(), list.firstOrNull()?.id ?: "").apply()
+        }
+    }
+
+    /** 当前用于分析的 API（选中的，否则第一条） */
+    fun getSelectedEntry(): ApiEntry? {
+        val entries = getEntries()
+        if (entries.isEmpty()) return null
+        val sel = prefs.getString(selectedEntryKey(), null)
+        return entries.firstOrNull { it.id == sel } ?: entries.first()
+    }
+
+    fun setSelectedEntry(id: String) {
+        prefs.edit().putString(selectedEntryKey(), id).apply()
     }
 }

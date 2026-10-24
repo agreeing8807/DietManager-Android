@@ -68,34 +68,33 @@ class LLMManager @Inject constructor(
     fun getVendor(id: String): VendorConfig =
         vendors.firstOrNull { it.id == id } ?: vendors.first()
 
-    fun getSelectedVendor(): VendorConfig {
-        val selected = apiKeyStore.getSetting("selected_provider", vendors.first().id)
-        return getVendor(selected)
+    /** 当前用于分析的 API（最后添加/选中一条），未配置返回 null */
+    fun getActiveProvider(): OpenAiProvider? {
+        val entry = apiKeyStore.getSelectedEntry() ?: return null
+        val config = getVendor(entry.vendorId)
+        return OpenAiProvider(
+            id = config.id,
+            displayName = config.name,
+            config = config,
+            service = serviceFor(config),
+            apiKey = entry.apiKey,
+            model = entry.model.ifBlank { config.defaultModel },
+            apiKeyStore = apiKeyStore
+        )
     }
 
-    fun getProvider(id: String): OpenAiProvider {
-        val config = getVendor(id)
-        return OpenAiProvider(config.id, config.name, config, serviceFor(config), apiKeyStore)
-    }
-
-    fun getSelectedProvider(): OpenAiProvider = getProvider(getSelectedVendor().id)
-
-    /** 连接测试：发送极简请求，成功返回 true */
-    suspend fun testConnection(id: String): Result<Unit> {
-        return runCatching {
-            val provider = getProvider(id)
-            val key = apiKeyStore.getApiKey(id)
-                ?: throw IllegalStateException("请先填写 API Key")
-            val service = serviceFor(getVendor(id))
-            val resp = service.chat(
-                "Bearer $key",
-                ChatCompletionRequest(
-                    model = getVendor(id).defaultModel,
-                    messages = listOf(ChatMessage("user", JsonPrimitive("ping"))),
-                    temperature = 0.1
-                )
+    /** 测试单条 API 连接 */
+    suspend fun testEntry(entry: ApiEntry): Result<Unit> = runCatching {
+        if (entry.apiKey.isBlank()) throw IllegalStateException("API Key 为空")
+        val config = getVendor(entry.vendorId)
+        val resp = serviceFor(config).chat(
+            "${config.authPrefix} ${entry.apiKey}",
+            ChatCompletionRequest(
+                model = entry.model.ifBlank { config.defaultModel },
+                messages = listOf(ChatMessage("user", JsonPrimitive("ping"))),
+                temperature = 0.1
             )
-            if (resp.error != null) throw IllegalStateException(resp.error.message)
-        }
+        )
+        if (resp.error != null) throw IllegalStateException(resp.error.message)
     }
 }

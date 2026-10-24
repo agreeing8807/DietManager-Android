@@ -29,6 +29,8 @@ class OpenAiProvider(
     override val displayName: String,
     private val config: VendorConfig,
     private val service: OpenAiCompatibleService,
+    private val apiKey: String,
+    private val model: String,
     private val apiKeyStore: ApiKeyStore
 ) : LLMProvider {
 
@@ -41,12 +43,12 @@ class OpenAiProvider(
         apiKeyStore.getSetting("prompt_suggest", DEFAULT_SUGGEST).ifBlank { DEFAULT_SUGGEST }
 
     override suspend fun analyzeMeal(req: MealAnalysisRequest): Result<MealAnalysis> {
-        val key = apiKeyStore.getApiKey(id) ?: return Result.failure(
+        if (apiKey.isBlank()) return Result.failure(
             IllegalStateException("未配置 ${config.name} 的 API Key")
         )
         val userContent = buildUserContent(req)
         val request = ChatCompletionRequest(
-            model = config.defaultModel,
+            model = model.ifBlank { config.defaultModel },
             messages = listOf(
                 ChatMessage("system", JsonPrimitive(analyzePrompt())),
                 ChatMessage("user", userContent)
@@ -55,7 +57,7 @@ class OpenAiProvider(
             response_format = ResponseFormat("json_object")
         )
         return runCatching {
-            val resp = service.chat("${config.authPrefix} $key", request)
+            val resp = service.chat("${config.authPrefix} $apiKey", request)
             val raw = resp.choices.firstOrNull()?.message?.content
                 ?: throw IllegalStateException("模型未返回内容")
             val parsed = json.decodeFromString<MealAnalysisJson>(stripFences(raw))
@@ -70,7 +72,7 @@ class OpenAiProvider(
     }
 
     override suspend fun suggestFoods(req: FoodSuggestionRequest): Result<List<FoodSuggestion>> {
-        val key = apiKeyStore.getApiKey(id) ?: return Result.failure(
+        if (apiKey.isBlank()) return Result.failure(
             IllegalStateException("未配置 ${config.name} 的 API Key")
         )
         val userText = buildString {
@@ -78,7 +80,7 @@ class OpenAiProvider(
             if (req.context.isNotBlank()) append("\n用户背景：${req.context}")
         }
         val request = ChatCompletionRequest(
-            model = config.defaultModel,
+            model = model.ifBlank { config.defaultModel },
             messages = listOf(
                 ChatMessage("system", JsonPrimitive(suggestPrompt())),
                 ChatMessage("user", JsonPrimitive(userText))
@@ -87,7 +89,7 @@ class OpenAiProvider(
             response_format = ResponseFormat("json_object")
         )
         return runCatching {
-            val resp = service.chat("${config.authPrefix} $key", request)
+            val resp = service.chat("${config.authPrefix} $apiKey", request)
             val raw = resp.choices.firstOrNull()?.message?.content
                 ?: throw IllegalStateException("模型未返回内容")
             val parsed = json.decodeFromString<FoodSuggestionListJson>(stripFences(raw))

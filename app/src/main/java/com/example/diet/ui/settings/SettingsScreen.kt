@@ -26,12 +26,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,8 +62,16 @@ import java.util.Locale
 fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val p = state.profile
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(state.message) {
+        state.message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessage()
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("设置") },
@@ -141,21 +153,43 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("大模型 API 配置", style = MaterialTheme.typography.titleLarge)
-                    Text("选择厂商并填写你自己的 API Key（仅保存在本机加密存储）", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("选择厂商/模型并填写 API Key，点“添加”会先校验连接再保存", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         state.vendors.forEach { v ->
-                            Chip(v.name, selected = v.id == state.selectedVendorId, onClick = { viewModel.selectVendor(v.id) })
+                            Chip(v.name, selected = v.id == state.newVendorId, onClick = { viewModel.selectNewVendor(v.id) })
                         }
                     }
                     OutlinedTextField(
-                        value = state.apiKey,
-                        onValueChange = { viewModel.setApiKey(it) },
+                        value = state.newModel,
+                        onValueChange = { viewModel.setNewModel(it) },
+                        label = { Text("模型") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = state.newApiKey,
+                        onValueChange = { viewModel.setNewApiKey(it) },
                         label = { Text("API Key") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Button(onClick = { viewModel.testConnection() }, enabled = !state.testing) {
-                        Text(if (state.testing) "测试中…" else "连接测试")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { viewModel.addApi() }, enabled = !state.adding, modifier = Modifier.weight(1f)) {
+                            Text(if (state.adding) "添加中…" else "添加")
+                        }
+                        OutlinedButton(onClick = { navController.navigate(Routes.API_LIST) }, modifier = Modifier.weight(1f)) {
+                            Text("查看 API")
+                        }
+                    }
+                    Button(onClick = { viewModel.testAll() }, enabled = !state.testing, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (state.testing) "测试中…" else "连接测试（全部）")
+                    }
+                    state.testResults.forEach { r ->
+                        Text(
+                            "${if (r.success) "✅" else "❌"} ${r.label}：${r.detail}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (r.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             }
@@ -199,10 +233,6 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                 }
             }
 
-            state.message?.let {
-                Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
-                viewModel.clearMessage()
-            }
         }
     }
 }

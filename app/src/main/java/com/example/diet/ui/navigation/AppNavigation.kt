@@ -30,6 +30,7 @@ import com.example.diet.ui.analysis.AnalysisScreen
 import com.example.diet.ui.dashboard.DashboardScreen
 import com.example.diet.ui.meal.MealScreen
 import com.example.diet.ui.onboarding.OnboardingScreen
+import com.example.diet.ui.settings.ApiListScreen
 import com.example.diet.ui.settings.SettingsScreen
 import com.example.diet.ui.water.ReminderScreen
 import com.example.diet.ui.water.WaterScreen
@@ -42,6 +43,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val REMINDER = "reminder"
     const val ONBOARDING = "onboarding"
+    const val API_LIST = "api_list"
 }
 
 data class BottomNavItem(val route: String, val label: String, val icon: ImageVector)
@@ -102,6 +104,7 @@ fun DietNavGraph() {
             composable(Routes.WATER) { WaterScreen(navController) }
             composable(Routes.ANALYSIS) { AnalysisScreen() }
             composable(Routes.SETTINGS) { SettingsScreen(navController) }
+            composable(Routes.API_LIST) { ApiListScreen(navController) }
             composable(Routes.REMINDER) { ReminderScreen(navController) }
         }
     }

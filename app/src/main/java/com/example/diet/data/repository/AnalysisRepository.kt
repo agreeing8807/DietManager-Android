@@ -26,7 +26,9 @@ class AnalysisRepository @Inject constructor(
             imageBytes = imageBytes,
             userContext = userContext()
         )
-        return llmManager.getSelectedProvider().analyzeMeal(req)
+        val provider = llmManager.getActiveProvider()
+            ?: return Result.failure(IllegalStateException("请先在设置中添加并选择一个 API"))
+        return provider.analyzeMeal(req)
     }
 
     suspend fun suggestFoods(remainingCalories: Int, date: String): Result<List<FoodSuggestion>> {
@@ -35,6 +37,8 @@ class AnalysisRepository @Inject constructor(
             context = userContext(),
             date = date
         )
-        return llmManager.getSelectedProvider().suggestFoods(req)
+        val provider = llmManager.getActiveProvider()
+            ?: return Result.failure(IllegalStateException("请先在设置中添加并选择一个 API"))
+        return provider.suggestFoods(req)
     }
 }
