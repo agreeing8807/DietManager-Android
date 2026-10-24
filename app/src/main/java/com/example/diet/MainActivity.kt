@@ -14,12 +14,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import com.example.diet.data.repository.ReminderRepository
 import com.example.diet.ui.navigation.DietNavGraph
 import com.example.diet.ui.theme.DietManagerTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var reminderRepository: ReminderRepository
 
     private val requestNotificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -30,6 +38,10 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        // 应用启动即写入默认提醒并排程，避免“从未打开提醒页就不提醒”
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { reminderRepository.ensureScheduled() }
         }
         setContent {
             DietManagerApp()
