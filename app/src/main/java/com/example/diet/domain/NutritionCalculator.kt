@@ -3,6 +3,7 @@ package com.example.diet.domain
 import com.example.diet.domain.model.ActivityLevel
 import com.example.diet.domain.model.DrinkType
 import com.example.diet.domain.model.Gender
+import com.example.diet.domain.model.MacroTargets
 
 /**
  * 营养与目标热量计算（Mifflin-St Jeor 公式）
@@ -49,6 +50,33 @@ object NutritionCalculator {
             else -> 0f              // 维持
         }
         return (tdee + adjust).toInt().coerceAtLeast(1200)
+    }
+
+    /**
+     * 按当前体重与热量目标推算每日蛋白质/碳水/脂肪目标：
+     * - 蛋白质 1.6 g/kg（常见增肌/减脂区间），最多不超过总热量 35%
+     * - 脂肪占总热量 25%
+     * - 碳水用剩余热量补足（1g 蛋白/碳水 = 4 kcal，1g 脂肪 = 9 kcal）
+     */
+    fun macroTargets(
+        calorieGoal: Int,
+        weightKg: Float,
+        proteinPerKg: Float = 1.6f
+    ): MacroTargets {
+        val goal = calorieGoal.coerceAtLeast(1200)
+        val protein = (proteinPerKg * weightKg).coerceIn(0f, goal * 0.35f / 4f)
+        val fat = goal * 0.25f / 9f
+        val carbKcal = (goal - protein * 4f - fat * 9f).coerceAtLeast(0f)
+        val carb = carbKcal / 4f
+        return MacroTargets(
+            proteinG = protein,
+            carbG = carb,
+            fatG = fat,
+            proteinKcal = (protein * 4f).toInt(),
+            carbKcal = (carb * 4f).toInt(),
+            fatKcal = (fat * 9f).toInt(),
+            calorieGoal = goal
+        )
     }
 
     /**

@@ -21,6 +21,10 @@ interface WeightDao {
     @Query("SELECT * FROM weight_record ORDER BY date ASC")
     fun observeAll(): Flow<List<WeightRecord>>
 
+    /** 区间内的体重记录（date 为 yyyy-MM-dd，可按字符串比较） */
+    @Query("SELECT * FROM weight_record WHERE date BETWEEN :start AND :end ORDER BY date ASC, recordedAt ASC")
+    fun observeBetween(start: String, end: String): Flow<List<WeightRecord>>
+
     @Query("SELECT * FROM weight_record")
     suspend fun getAll(): List<WeightRecord>
 

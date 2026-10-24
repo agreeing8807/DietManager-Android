@@ -9,6 +9,22 @@ data class MealAnalysis(
     val summary: String
 )
 
+/** 每日三大营养素目标（克）与折算热量（kcal） */
+data class MacroTargets(
+    val proteinG: Float,
+    val carbG: Float,
+    val fatG: Float,
+    val proteinKcal: Int,
+    val carbKcal: Int,
+    val fatKcal: Int,
+    val calorieGoal: Int
+) {
+    /** 三大营养素热量占比（0f~1f） */
+    val proteinRatio: Float get() = if (calorieGoal > 0) proteinKcal.toFloat() / calorieGoal else 0f
+    val carbRatio: Float get() = if (calorieGoal > 0) carbKcal.toFloat() / calorieGoal else 0f
+    val fatRatio: Float get() = if (calorieGoal > 0) fatKcal.toFloat() / calorieGoal else 0f
+}
+
 /** 推荐食物条目 */
 data class FoodSuggestion(
     val name: String,

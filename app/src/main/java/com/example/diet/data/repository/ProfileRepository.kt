@@ -31,6 +31,14 @@ class ProfileRepository @Inject constructor(
         dao.upsert(p.copy(dailyCalorieGoal = goal, updatedAt = System.currentTimeMillis()))
     }
 
+    /** 记录体重后同步资料中的当前体重（不覆盖已有的热量目标） */
+    suspend fun updateCurrentWeight(weightKg: Float) {
+        if (weightKg <= 0f) return
+        val current = getProfile()
+        if (current.currentWeightKg == weightKg) return
+        saveProfile(current.copy(currentWeightKg = weightKg))
+    }
+
     private fun UserProfile.withComputedAge(): UserProfile =
         birthday?.let { copy(age = AgeCalculator.ageFromBirthday(it)) } ?: this
 

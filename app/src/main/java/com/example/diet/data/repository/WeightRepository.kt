@@ -14,6 +14,9 @@ class WeightRepository @Inject constructor(
 
     fun observeAll(): Flow<List<WeightRecord>> = dao.observeAll()
 
+    fun observeBetween(start: String, end: String): Flow<List<WeightRecord>> =
+        dao.observeBetween(start, end)
+
     suspend fun addWeight(record: WeightRecord): Long = dao.insert(record)
 
     suspend fun deleteWeight(record: WeightRecord) = dao.delete(record)

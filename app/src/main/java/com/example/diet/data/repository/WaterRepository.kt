@@ -1,5 +1,6 @@
 package com.example.diet.data.repository
 
+import com.example.diet.data.local.dao.DailyVolume
 import com.example.diet.data.local.dao.WaterDao
 import com.example.diet.data.local.entity.WaterRecord
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,9 @@ class WaterRepository @Inject constructor(
     fun observeVolumeByDate(date: String): Flow<Int> = dao.observeVolumeByDate(date)
 
     fun observeCaloriesByDate(date: String): Flow<Int> = dao.observeCaloriesByDate(date)
+
+    fun observeDailyVolumesBetween(start: String, end: String): Flow<List<DailyVolume>> =
+        dao.observeDailyVolumesBetween(start, end)
 
     suspend fun addWater(record: WaterRecord): Long = dao.insert(record)
 
