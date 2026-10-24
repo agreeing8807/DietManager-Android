@@ -15,6 +15,8 @@ data class UserProfile(
     @PrimaryKey val id: Int = 1,
     val gender: Gender = Gender.MALE,
     val age: Int = 25,
+    /** 生日（epoch millis，可空）；年龄由生日自动计算，age 仅作缓存展示 */
+    val birthday: Long? = null,
     val heightCm: Float = 170f,
     val currentWeightKg: Float = 65f,
     val targetWeightKg: Float = 60f,

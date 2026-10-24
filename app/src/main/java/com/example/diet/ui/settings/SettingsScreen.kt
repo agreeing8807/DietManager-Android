@@ -1,5 +1,6 @@
 package com.example.diet.ui.settings
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -27,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -42,6 +46,12 @@ import androidx.navigation.NavHostController
 import com.example.diet.domain.model.ActivityLevel
 import com.example.diet.domain.model.Gender
 import com.example.diet.ui.component.Chip
+import com.example.diet.ui.navigation.Routes
+import com.example.diet.util.AgeCalculator
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,7 +84,15 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                         Chip("女", selected = p.gender == Gender.FEMALE, onClick = { viewModel.updateProfile { copy(gender = Gender.FEMALE) } })
                     }
 
-                    NumberField("年龄", p.age.toString()) { viewModel.updateProfile { copy(age = it) } }
+                    BirthdayField(
+                        birthday = p.birthday,
+                        age = p.age,
+                        onChange = { millis ->
+                            viewModel.updateProfile {
+                                copy(birthday = millis, age = AgeCalculator.ageFromBirthday(millis))
+                            }
+                        }
+                    )
                     NumberField("身高 (cm)", p.heightCm.toInt().toString()) { viewModel.updateProfile { copy(heightCm = it.toFloat()) } }
                     NumberField("当前体重 (kg)", p.currentWeightKg.toInt().toString()) { viewModel.updateProfile { copy(currentWeightKg = it.toFloat()) } }
                     NumberField("目标体重 (kg)", p.targetWeightKg.toInt().toString()) { viewModel.updateProfile { copy(targetWeightKg = it.toFloat()) } }
@@ -110,6 +128,12 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
 
                     Button(onClick = { viewModel.saveProfile() }, modifier = Modifier.fillMaxWidth()) {
                         Text("保存资料并计算目标热量")
+                    }
+                    TextButton(
+                        onClick = { navController.navigate(Routes.ONBOARDING) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("重新查看新手引导")
                     }
                 }
             }
@@ -195,5 +219,39 @@ private fun NumberField(label: String, value: String, onValueChange: (Int) -> Un
         label = { Text(label) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun BirthdayField(birthday: Long?, age: Int, onChange: (Long) -> Unit) {
+    val context = LocalContext.current
+    val formatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    OutlinedTextField(
+        value = birthday?.let { ms -> formatter.format(Date(ms)) } ?: "未设置",
+        onValueChange = {},
+        readOnly = true,
+        label = { Text("生日（年龄自动计算：$age 岁）") },
+        modifier = Modifier.fillMaxWidth(),
+        trailingIcon = {
+            IconButton(onClick = {
+                val initCal = birthday?.let { ms -> Calendar.getInstance().apply { timeInMillis = ms } }
+                    ?: Calendar.getInstance()
+                DatePickerDialog(
+                    context,
+                    { _, year, month, day ->
+                        val picked = Calendar.getInstance().apply {
+                            clear()
+                            set(year, month, day, 0, 0, 0)
+                        }
+                        onChange(picked.timeInMillis)
+                    },
+                    initCal.get(Calendar.YEAR),
+                    initCal.get(Calendar.MONTH),
+                    initCal.get(Calendar.DAY_OF_MONTH)
+                ).show()
+            }) {
+                Icon(Icons.Filled.Edit, contentDescription = "选择生日")
+            }
+        }
     )
 }

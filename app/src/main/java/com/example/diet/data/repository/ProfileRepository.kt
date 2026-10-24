@@ -5,6 +5,7 @@ import com.example.diet.data.local.entity.UserProfile
 import com.example.diet.domain.NutritionCalculator
 import com.example.diet.domain.model.ActivityLevel
 import com.example.diet.domain.model.Gender
+import com.example.diet.util.AgeCalculator
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -14,20 +15,24 @@ import javax.inject.Singleton
 class ProfileRepository @Inject constructor(
     private val dao: UserProfileDao
 ) {
-    /** 始终返回非空资料（缺失时返回默认并落库） */
-    fun observeProfile(): Flow<UserProfile> = dao.observe().map { it ?: defaultProfile() }
+    /** 始终返回非空资料（缺失时返回默认），年龄按生日实时计算 */
+    fun observeProfile(): Flow<UserProfile> = dao.observe().map { (it ?: defaultProfile()).withComputedAge() }
 
-    suspend fun getProfile(): UserProfile = dao.get() ?: defaultProfile()
+    suspend fun getProfile(): UserProfile = (dao.get() ?: defaultProfile()).withComputedAge()
 
     suspend fun saveProfile(profile: UserProfile) {
-        val goal = if (profile.dailyCalorieGoal <= 0) {
+        val p = profile.withComputedAge()
+        val goal = if (p.dailyCalorieGoal <= 0) {
             NutritionCalculator.dailyCalorieGoal(
-                profile.gender, profile.currentWeightKg, profile.heightCm,
-                profile.age, profile.activity, profile.targetWeightKg
+                p.gender, p.currentWeightKg, p.heightCm,
+                p.age, p.activity, p.targetWeightKg
             )
-        } else profile.dailyCalorieGoal
-        dao.upsert(profile.copy(dailyCalorieGoal = goal, updatedAt = System.currentTimeMillis()))
+        } else p.dailyCalorieGoal
+        dao.upsert(p.copy(dailyCalorieGoal = goal, updatedAt = System.currentTimeMillis()))
     }
+
+    private fun UserProfile.withComputedAge(): UserProfile =
+        birthday?.let { copy(age = AgeCalculator.ageFromBirthday(it)) } ?: this
 
     private fun defaultProfile(): UserProfile {
         val goal = NutritionCalculator.dailyCalorieGoal(

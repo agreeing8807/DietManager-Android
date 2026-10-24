@@ -22,7 +22,7 @@ import com.example.diet.data.local.entity.WeightRecord
         WaterRecord::class,
         ReminderSetting::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

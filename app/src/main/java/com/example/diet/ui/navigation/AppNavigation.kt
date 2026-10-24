@@ -1,5 +1,6 @@
 package com.example.diet.ui.navigation
 
+import android.content.Context
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
@@ -14,8 +15,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -26,6 +29,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.diet.ui.analysis.AnalysisScreen
 import com.example.diet.ui.dashboard.DashboardScreen
 import com.example.diet.ui.meal.MealScreen
+import com.example.diet.ui.onboarding.OnboardingScreen
 import com.example.diet.ui.settings.SettingsScreen
 import com.example.diet.ui.water.ReminderScreen
 import com.example.diet.ui.water.WaterScreen
@@ -37,6 +41,7 @@ object Routes {
     const val ANALYSIS = "analysis"
     const val SETTINGS = "settings"
     const val REMINDER = "reminder"
+    const val ONBOARDING = "onboarding"
 }
 
 data class BottomNavItem(val route: String, val label: String, val icon: ImageVector)
@@ -52,6 +57,13 @@ val bottomNavItems = listOf(
 @Composable
 fun DietNavGraph() {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    // 首次启动检测：已完成引导进首页，否则进引导页
+    val startDestination = remember {
+        if (context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                .getBoolean("onboarded", false)
+        ) Routes.DASHBOARD else Routes.ONBOARDING
+    }
     Scaffold(
         bottomBar = {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -81,9 +93,10 @@ fun DietNavGraph() {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Routes.DASHBOARD,
+            startDestination = startDestination,
             modifier = Modifier.padding(innerPadding)
         ) {
+            composable(Routes.ONBOARDING) { OnboardingScreen(navController) }
             composable(Routes.DASHBOARD) { DashboardScreen(navController) }
             composable(Routes.MEAL) { MealScreen() }
             composable(Routes.WATER) { WaterScreen(navController) }
