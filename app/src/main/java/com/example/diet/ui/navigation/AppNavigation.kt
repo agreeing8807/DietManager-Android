@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -51,7 +50,6 @@ data class BottomNavItem(val route: String, val label: String, val icon: ImageVe
 val bottomNavItems = listOf(
     BottomNavItem(Routes.DASHBOARD, "首页", Icons.Filled.Home),
     BottomNavItem(Routes.MEAL, "记录", Icons.Filled.Restaurant),
-    BottomNavItem(Routes.WATER, "喝水", Icons.Filled.LocalDrink),
     BottomNavItem(Routes.ANALYSIS, "分析", Icons.Filled.Analytics),
     BottomNavItem(Routes.SETTINGS, "设置", Icons.Filled.Settings)
 )

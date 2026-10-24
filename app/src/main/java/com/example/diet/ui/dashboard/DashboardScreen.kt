@@ -15,17 +15,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,7 +45,9 @@ import androidx.navigation.NavHostController
 import com.example.diet.ui.component.ProgressRing
 import com.example.diet.ui.component.RingLabel
 import com.example.diet.ui.component.SectionCard
+import com.example.diet.ui.navigation.Routes
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +97,7 @@ fun DashboardScreen(navController: NavHostController, viewModel: DashboardViewMo
             }
 
             item {
+                var waterAmount by remember { mutableStateOf(250f) }
                 SectionCard {
                     Column {
                         Row(
@@ -96,12 +105,30 @@ fun DashboardScreen(navController: NavHostController, viewModel: DashboardViewMo
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("饮水量", style = MaterialTheme.typography.titleLarge)
-                            Text(
-                                "${state.waterVolume} / ${waterGoal} ml",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.LocalDrink,
+                                    contentDescription = null,
+                                    Modifier.size(22.dp),
+                                    tint = Color(0xFF0288D1)
+                                )
+                                Spacer(Modifier.size(8.dp))
+                                Text("饮水", style = MaterialTheme.typography.titleLarge)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "${state.waterVolume} / ${waterGoal} ml",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                IconButton(onClick = { navController.navigate(Routes.REMINDER) }) {
+                                    Icon(
+                                        Icons.Filled.Notifications,
+                                        contentDescription = "饮水提醒",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                         }
                         Spacer(Modifier.height(8.dp))
                         Box(
@@ -120,10 +147,40 @@ fun DashboardScreen(navController: NavHostController, viewModel: DashboardViewMo
                             )
                         }
                         Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            QuickWaterButton("+200", onClick = { scope.launch { viewModel.quickAddWater(200) } })
-                            QuickWaterButton("+300", onClick = { scope.launch { viewModel.quickAddWater(300) } })
-                            QuickWaterButton("+500", onClick = { scope.launch { viewModel.quickAddWater(500) } })
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "本次饮水量",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "${waterAmount.roundToInt()} ml",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Slider(
+                            value = waterAmount,
+                            onValueChange = { waterAmount = it },
+                            valueRange = 0f..500f,
+                            steps = 9
+                        )
+                        Button(
+                            onClick = {
+                                val ml = waterAmount.roundToInt()
+                                if (ml > 0) scope.launch { viewModel.quickAddWater(ml) }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = waterAmount.roundToInt() > 0
+                        ) {
+                            Icon(Icons.Filled.LocalDrink, contentDescription = null, Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text("饮水 ${waterAmount.roundToInt()} ml")
                         }
                     }
                 }
@@ -137,15 +194,6 @@ fun DashboardScreen(navController: NavHostController, viewModel: DashboardViewMo
                 ) { navController.navigate("meal") }
             }
         }
-    }
-}
-
-@Composable
-private fun QuickWaterButton(text: String, onClick: () -> Unit) {
-    androidx.compose.material3.FilledTonalButton(onClick = onClick) {
-        Icon(Icons.Filled.LocalDrink, contentDescription = null, Modifier.size(18.dp))
-        Spacer(Modifier.size(4.dp))
-        Text(text)
     }
 }
 
