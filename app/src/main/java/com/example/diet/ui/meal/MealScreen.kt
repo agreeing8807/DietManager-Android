@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -153,14 +156,25 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(meals, key = { it.id }) { meal ->
-                MealItemCard(meal = meal, onDelete = { viewModel.deleteMeal(meal) })
+                MealItemCard(
+                    meal = meal,
+                    onDelete = { viewModel.deleteMeal(meal) },
+                    onUpdateCalories = { viewModel.updateCalories(meal, it) }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MealItemCard(meal: com.example.diet.data.local.entity.MealRecord, onDelete: () -> Unit) {
+private fun MealItemCard(
+    meal: com.example.diet.data.local.entity.MealRecord,
+    onDelete: () -> Unit,
+    onUpdateCalories: (Int) -> Unit
+) {
+    var editing by remember { mutableStateOf(false) }
+    var calorieInput by remember { mutableStateOf(meal.caloriesKcal.toString()) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -170,11 +184,17 @@ private fun MealItemCard(meal: com.example.diet.data.local.entity.MealRecord, on
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     Text(meal.description, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "${meal.caloriesKcal} kcal" + if (meal.analyzedByAi) " · AI 分析" else " · 手动",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${meal.caloriesKcal} kcal" + if (meal.analyzedByAi) " · AI 分析" else " · 手动",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        TextButton(onClick = {
+                            calorieInput = meal.caloriesKcal.toString()
+                            editing = true
+                        }) { Text("改热量") }
+                    }
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Filled.Delete, contentDescription = "删除", tint = Color(0xFFE53935))
@@ -188,5 +208,30 @@ private fun MealItemCard(meal: com.example.diet.data.local.entity.MealRecord, on
             MacroBar("碳水", meal.carbG, (meal.carbG + 60f).coerceAtLeast(60f), Color(0xFFFFB74D))
             MacroBar("脂肪", meal.fatG, (meal.fatG + 25f).coerceAtLeast(25f), Color(0xFFAB47BC))
         }
+    }
+
+    if (editing) {
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text("修改热量") },
+            text = {
+                OutlinedTextField(
+                    value = calorieInput,
+                    onValueChange = { calorieInput = it.filter { c -> c.isDigit() } },
+                    label = { Text("热量 (kcal)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    calorieInput.toIntOrNull()?.let { onUpdateCalories(it) }
+                    editing = false
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editing = false }) { Text("取消") }
+            }
+        )
     }
 }

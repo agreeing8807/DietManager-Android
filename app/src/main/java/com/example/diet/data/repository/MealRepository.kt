@@ -17,4 +17,6 @@ class MealRepository @Inject constructor(
     suspend fun addMeal(record: MealRecord): Long = dao.insert(record)
 
     suspend fun deleteMeal(record: MealRecord) = dao.delete(record)
+
+    suspend fun updateMeal(record: MealRecord) = dao.update(record)
 }

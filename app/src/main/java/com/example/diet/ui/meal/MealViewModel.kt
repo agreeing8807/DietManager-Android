@@ -75,5 +75,10 @@ class MealViewModel @Inject constructor(
         viewModelScope.launch { mealRepository.deleteMeal(record) }
     }
 
+    /** 手动修改某条饮食记录的热量 */
+    fun updateCalories(record: MealRecord, calories: Int) {
+        viewModelScope.launch { mealRepository.updateMeal(record.copy(caloriesKcal = calories)) }
+    }
+
     fun clearMessage() = _uiState.update { it.copy(message = null) }
 }

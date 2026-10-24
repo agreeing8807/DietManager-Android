@@ -138,6 +138,34 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
 
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("大模型提示语（Prompt）", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "可自定义发送给模型的系统提示语；留空则使用默认。修改后自动保存。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = state.promptAnalyze,
+                        onValueChange = { viewModel.setPromptAnalyze(it) },
+                        label = { Text("餐食分析 Prompt") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 4
+                    )
+                    OutlinedTextField(
+                        value = state.promptSuggest,
+                        onValueChange = { viewModel.setPromptSuggest(it) },
+                        label = { Text("食物推荐 Prompt") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3
+                    )
+                    Button(onClick = { viewModel.resetPrompts() }, modifier = Modifier.fillMaxWidth()) {
+                        Text("恢复默认提示语")
+                    }
+                }
+            }
+
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("数据管理", style = MaterialTheme.typography.titleLarge)
                     Text("导出/导入本地备份（JSON，保存在应用私有目录）", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

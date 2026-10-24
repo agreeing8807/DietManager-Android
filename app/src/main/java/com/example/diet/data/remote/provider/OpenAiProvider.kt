@@ -34,19 +34,11 @@ class OpenAiProvider(
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    private val systemAnalyze = """
-        你是一名专业的营养师。请根据用户提供的餐食信息，估算该餐的营养成分。
-        仅返回一个 JSON 对象，不要包含任何解释或 markdown 代码块，格式如下：
-        {"caloriesKcal":整数,"proteinG":浮点数,"carbG":浮点数,"fatG":浮点数,"summary":"一句话点评与建议"}
-        若信息不足，请基于常见分量合理估算并在 summary 中说明。
-    """.trimIndent()
+    private fun analyzePrompt(): String =
+        apiKeyStore.getSetting("prompt_analyze", DEFAULT_ANALYZE).ifBlank { DEFAULT_ANALYZE }
 
-    private val systemSuggest = """
-        你是一名专业的营养师。请根据用户当日的剩余热量额度与饮食目标，推荐合适的食物。
-        仅返回一个 JSON 对象，不要包含任何解释或 markdown 代码块，格式如下：
-        {"items":[{"name":"食物名","caloriesKcal":整数,"reason":"推荐理由"}]}
-        推荐 4-6 项，优先低热量高营养的密度食物。
-    """.trimIndent()
+    private fun suggestPrompt(): String =
+        apiKeyStore.getSetting("prompt_suggest", DEFAULT_SUGGEST).ifBlank { DEFAULT_SUGGEST }
 
     override suspend fun analyzeMeal(req: MealAnalysisRequest): Result<MealAnalysis> {
         val key = apiKeyStore.getApiKey(id) ?: return Result.failure(
@@ -56,7 +48,7 @@ class OpenAiProvider(
         val request = ChatCompletionRequest(
             model = config.defaultModel,
             messages = listOf(
-                ChatMessage("system", JsonPrimitive(systemAnalyze)),
+                ChatMessage("system", JsonPrimitive(analyzePrompt())),
                 ChatMessage("user", userContent)
             ),
             temperature = 0.3,
@@ -88,7 +80,7 @@ class OpenAiProvider(
         val request = ChatCompletionRequest(
             model = config.defaultModel,
             messages = listOf(
-                ChatMessage("system", JsonPrimitive(systemSuggest)),
+                ChatMessage("system", JsonPrimitive(suggestPrompt())),
                 ChatMessage("user", JsonPrimitive(userText))
             ),
             temperature = 0.6,
@@ -147,5 +139,21 @@ class OpenAiProvider(
             trimmed.removePrefix("```json").removePrefix("```")
                 .removeSuffix("```").trim()
         } else trimmed
+    }
+
+    companion object {
+        val DEFAULT_ANALYZE = """
+            你是一名专业的营养师。请根据用户提供的餐食信息，估算该餐的营养成分。
+            仅返回一个 JSON 对象，不要包含任何解释或 markdown 代码块，格式如下：
+            {"caloriesKcal":整数,"proteinG":浮点数,"carbG":浮点数,"fatG":浮点数,"summary":"一句话点评与建议"}
+            若信息不足，请基于常见分量合理估算并在 summary 中说明。
+        """.trimIndent()
+
+        val DEFAULT_SUGGEST = """
+            你是一名专业的营养师。请根据用户当日的剩余热量额度与饮食目标，推荐合适的食物。
+            仅返回一个 JSON 对象，不要包含任何解释或 markdown 代码块，格式如下：
+            {"items":[{"name":"食物名","caloriesKcal":整数,"reason":"推荐理由"}]}
+            推荐 4-6 项，优先低热量高营养的密度食物。
+        """.trimIndent()
     }
 }

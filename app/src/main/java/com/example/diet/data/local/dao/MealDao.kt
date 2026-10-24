@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.ColumnInfo
 import androidx.room.Query
+import androidx.room.Update
 import com.example.diet.data.local.entity.MealRecord
 import kotlinx.coroutines.flow.Flow
 
@@ -15,6 +16,9 @@ interface MealDao {
 
     @Delete
     suspend fun delete(record: MealRecord)
+
+    @Update
+    suspend fun update(record: MealRecord)
 
     @Query("SELECT * FROM meal_record WHERE date = :date ORDER BY type ASC, createdAt ASC")
     fun observeByDate(date: String): Flow<List<MealRecord>>

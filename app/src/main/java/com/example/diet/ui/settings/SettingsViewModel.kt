@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.diet.data.BackupManager
 import com.example.diet.data.remote.ApiKeyStore
 import com.example.diet.data.remote.LLMManager
+import com.example.diet.data.remote.provider.OpenAiProvider
 import com.example.diet.data.remote.provider.VendorConfig
 import com.example.diet.data.repository.ProfileRepository
 import com.example.diet.data.local.entity.UserProfile
@@ -21,6 +22,8 @@ data class SettingsUiState(
     val vendors: List<VendorConfig> = emptyList(),
     val selectedVendorId: String = "",
     val apiKey: String = "",
+    val promptAnalyze: String = "",
+    val promptSuggest: String = "",
     val message: String? = null,
     val testing: Boolean = false
 )
@@ -42,8 +45,11 @@ class SettingsViewModel @Inject constructor(
             val vendors = llmManager.vendors
             val selected = apiKeyStore.getSetting("selected_provider", vendors.first().id)
             val key = apiKeyStore.getApiKey(selected) ?: ""
+            val promptAnalyze = apiKeyStore.getSetting("prompt_analyze", OpenAiProvider.DEFAULT_ANALYZE)
+            val promptSuggest = apiKeyStore.getSetting("prompt_suggest", OpenAiProvider.DEFAULT_SUGGEST)
             _uiState.value = SettingsUiState(
-                profile = profile, vendors = vendors, selectedVendorId = selected, apiKey = key
+                profile = profile, vendors = vendors, selectedVendorId = selected, apiKey = key,
+                promptAnalyze = promptAnalyze, promptSuggest = promptSuggest
             )
         }
     }
@@ -68,6 +74,28 @@ class SettingsViewModel @Inject constructor(
     fun setApiKey(value: String) {
         apiKeyStore.setApiKey(_uiState.value.selectedVendorId, value)
         _uiState.update { it.copy(apiKey = value, message = "API Key 已保存（加密存储）") }
+    }
+
+    fun setPromptAnalyze(value: String) {
+        apiKeyStore.setSetting("prompt_analyze", value)
+        _uiState.update { it.copy(promptAnalyze = value) }
+    }
+
+    fun setPromptSuggest(value: String) {
+        apiKeyStore.setSetting("prompt_suggest", value)
+        _uiState.update { it.copy(promptSuggest = value) }
+    }
+
+    fun resetPrompts() {
+        apiKeyStore.setSetting("prompt_analyze", OpenAiProvider.DEFAULT_ANALYZE)
+        apiKeyStore.setSetting("prompt_suggest", OpenAiProvider.DEFAULT_SUGGEST)
+        _uiState.update {
+            it.copy(
+                promptAnalyze = OpenAiProvider.DEFAULT_ANALYZE,
+                promptSuggest = OpenAiProvider.DEFAULT_SUGGEST,
+                message = "已恢复默认提示语"
+            )
+        }
     }
 
     fun testConnection() {
