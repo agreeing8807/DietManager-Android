@@ -43,13 +43,13 @@ object DrinkCalculator {
     private const val POWDER_ML_PER_GRAM = 1f
 
     fun nutritionOf(preset: DrinkPreset, volumeMl: Int): DrinkNutrition {
-        val factor = volumeMl / 100f
+        val totals = NutrientBasis.of(preset).totalsForAmount(volumeMl.toFloat())
         return DrinkNutrition(
             waterMl = (volumeMl * preset.waterRatio.coerceIn(0f, 1f)).roundToInt(),
-            caloriesKcal = (preset.caloriesPer100ml * factor).roundToInt(),
-            proteinG = preset.proteinPer100ml * factor,
-            carbG = preset.carbPer100ml * factor,
-            fatG = preset.fatPer100ml * factor
+            caloriesKcal = totals.kcal,
+            proteinG = totals.proteinG,
+            carbG = totals.carbG,
+            fatG = totals.fatG
         )
     }
 
@@ -60,19 +60,20 @@ object DrinkCalculator {
     fun mixOf(preset: DrinkPreset, servings: Float, waterMl: Int): PowderNutrition {
         val s = servings.coerceIn(0f, MAX_SERVINGS)
         val water = waterMl.coerceIn(0, MAX_WATER_ML)
+        // 营养只取「每份」基准 × 份数，与水完全无关
+        val totals = NutrientBasis.of(preset).totalsOf(s)
         val powderGrams = preset.servingGrams.coerceAtLeast(0f) * s
         val totalMl = (water + powderGrams * POWDER_ML_PER_GRAM).roundToInt()
-        val kcal = (preset.caloriesPerServing.coerceAtLeast(0f) * s).roundToInt()
         return PowderNutrition(
             servings = s,
             waterMl = water,
             powderGrams = powderGrams,
             totalMl = totalMl,
-            caloriesKcal = kcal,
-            proteinG = preset.proteinPerServing.coerceAtLeast(0f) * s,
-            carbG = preset.carbPerServing.coerceAtLeast(0f) * s,
-            fatG = preset.fatPerServing.coerceAtLeast(0f) * s,
-            kcalPer100ml = if (totalMl > 0) kcal * 100f / totalMl else 0f
+            caloriesKcal = totals.kcal,
+            proteinG = totals.proteinG,
+            carbG = totals.carbG,
+            fatG = totals.fatG,
+            kcalPer100ml = if (totalMl > 0) totals.kcal * 100f / totalMl else 0f
         )
     }
 

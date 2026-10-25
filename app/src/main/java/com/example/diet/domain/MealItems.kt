@@ -14,6 +14,7 @@ object MealItems {
     fun toAnalysisItem(item: MealItem): MealAnalysisItem = MealAnalysisItem(
         name = item.name,
         grams = item.grams,
+        servings = item.servings,
         brand = item.brand,
         per100 = if (item.hasBasis) {
             Per100g(item.kcalPer100g, item.proteinPer100g, item.carbPer100g, item.fatPer100g)
@@ -31,6 +32,7 @@ object MealItems {
         name = item.name,
         brand = item.brand,
         grams = item.grams,
+        servings = item.servings,
         kcalPer100g = item.per100?.kcal ?: 0f,
         proteinPer100g = item.per100?.proteinG ?: 0f,
         carbPer100g = item.per100?.carbG ?: 0f,
@@ -42,16 +44,9 @@ object MealItems {
     )
 
     fun nutritionOf(item: MealItem, grams: Float = item.grams): NutrientTotals {
-        if (!item.hasBasis) return NutrientTotals.EMPTY
-        return NutritionTools.compute(
-            Per100g(
-                kcal = item.kcalPer100g,
-                proteinG = item.proteinPer100g,
-                carbG = item.carbPer100g,
-                fatG = item.fatPer100g
-            ),
-            grams
-        )
+        val basis = NutrientBasis.of(item)
+        if (!basis.isUsable) return NutrientTotals.EMPTY
+        return basis.totalsForAmount(grams.coerceIn(0f, NutritionTools.MAX_GRAMS))
     }
 
     fun totals(items: List<MealItem>): NutrientTotals = items.fold(NutrientTotals.EMPTY) { acc, item ->

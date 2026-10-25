@@ -6,6 +6,8 @@ import com.example.diet.domain.Per100g
 data class MealAnalysisItem(
     val name: String,
     val grams: Float,
+    /** 可数单位的份数（蛋/包子/勺），0 表示按克记录 */
+    val servings: Float = 0f,
     val brand: String = "",
     /** 为空表示没查到可靠营养数据，仍保留条目以便用户补充或删除 */
     val per100: Per100g? = null,

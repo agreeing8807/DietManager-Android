@@ -48,16 +48,12 @@ data class ValidationResult(
  */
 object NutritionTools {
 
+    /** 单次换算的克数上限 */
+    const val MAX_GRAMS = 5000f
+
     /** 按每 100g 数据换算到实际克数；克数越界按 0~5000g 处理 */
-    fun compute(per100: Per100g, grams: Float): NutrientTotals {
-        val factor = grams.coerceIn(0f, 5000f) / 100f
-        return NutrientTotals(
-            kcal = (per100.kcal * factor).roundToInt(),
-            proteinG = per100.proteinG * factor,
-            carbG = per100.carbG * factor,
-            fatG = per100.fatG * factor
-        )
-    }
+    fun compute(per100: Per100g, grams: Float): NutrientTotals =
+        ServingBasis.per100g(per100).totalsForAmount(grams.coerceIn(0f, MAX_GRAMS))
 
     /** 多项求和，未解析到数据的项自动跳过 */
     fun sum(items: List<ResolvedItem>): NutrientTotals =

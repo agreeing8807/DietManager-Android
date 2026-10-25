@@ -56,8 +56,10 @@ data class MealIdentifyJson(
 data class IdentifyItemJson(
     val name: String = "",
     val brand: String = "",
-    /** 可食用部分克数（饮品按 ml 近似为 g） */
+    /** 可食用部分克数（饮品按 ml 近似为 g）；0 表示模型未给出，可由本地份量推导 */
     val grams: Float = 0f,
+    /** 可数单位的份数：1 个鸡蛋、2 个包子、1 勺蛋白粉；无法按份表述时为 0 */
+    val servings: Float = 0f,
     /** 是否为有包装的商品（决定是否需要按商品查营养） */
     val packaged: Boolean = false
 )

@@ -33,6 +33,8 @@ data class MealItem(
     val brand: String = "",
     /** 实际食用克数（饮品按 ml 近似） */
     val grams: Float = 0f,
+    /** 可数单位的份数（1 个鸡蛋 / 2 个包子 / 1 勺），0 表示按克记录 */
+    val servings: Float = 0f,
     // ---- 每 100g 基准，来自内置成分表或模型补数 ----
     val kcalPer100g: Float = 0f,
     val proteinPer100g: Float = 0f,

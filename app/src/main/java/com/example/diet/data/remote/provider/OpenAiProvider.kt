@@ -99,16 +99,26 @@ class OpenAiProvider(
             // 每条识别结果对应的解析结果，null 表示没查到数据，用于落库明细
             val resolvedByIndex = mutableMapOf<Int, ResolvedItem>()
 
+            // 每条识别结果的实际克数（可能由「每份克数 × 份数」推导出来）
+            val gramsByIndex = mutableMapOf<Int, Float>()
+
             items.forEachIndexed { index, item ->
-                if (item.grams <= 0f) {
+                val local = if (item.packaged) null else FoodCompositionTable.lookup(item.name)
+                // 明确给出份数（如「两个包子」）但没给克数时，用成分表的常见份量推导；
+                // 两者都缺则保持缺失，不默认按一份处理
+                val grams = item.grams.takeIf { it > 0f }
+                    ?: local?.servingGrams?.takeIf { it > 0f && item.servings > 0f }
+                        ?.times(item.servings)
+                    ?: 0f
+                gramsByIndex[index] = grams
+                if (grams <= 0f) {
                     missingNames += item.name
                     return@forEachIndexed
                 }
-                val local = if (item.packaged) null else FoodCompositionTable.lookup(item.name)
                 if (local != null) {
                     val hit = ResolvedItem(
                         name = item.name,
-                        grams = item.grams,
+                        grams = grams,
                         per100 = local.per100,
                         source = FoodCompositionTable.SOURCE,
                         confidence = 1f
@@ -129,7 +139,7 @@ class OpenAiProvider(
                     if (fill != null && per100 != null) {
                         val hit = ResolvedItem(
                             name = item.name,
-                            grams = item.grams,
+                            grams = gramsByIndex[index] ?: item.grams,
                             per100 = per100,
                             source = fill.source.trim().ifBlank { "模型补充" },
                             confidence = fill.confidence
@@ -142,7 +152,7 @@ class OpenAiProvider(
                         if (fallback != null) {
                             val hit = ResolvedItem(
                                 name = item.name,
-                                grams = item.grams,
+                                grams = gramsByIndex[index] ?: item.grams,
                                 per100 = fallback.per100,
                                 source = "${FoodCompositionTable.SOURCE}（同类参考）"
                             )
@@ -160,7 +170,8 @@ class OpenAiProvider(
                 val hit = resolvedByIndex[index]
                 MealAnalysisItem(
                     name = item.name,
-                    grams = item.grams,
+                    grams = gramsByIndex[index] ?: item.grams,
+                    servings = item.servings,
                     brand = item.brand,
                     per100 = hit?.per100,
                     source = hit?.source.orEmpty(),
@@ -288,7 +299,8 @@ class OpenAiProvider(
     private fun IdentifyItemJson.sanitized(): IdentifyItemJson = copy(
         name = name.trim(),
         brand = brand.trim(),
-        grams = if (grams > 0f) grams.coerceAtMost(5000f) else 0f
+        grams = if (grams > 0f) grams.coerceAtMost(NutritionTools.MAX_GRAMS) else 0f,
+        servings = if (servings > 0f) servings.coerceAtMost(50f) else 0f
     )
 
     /** 置信度过低或四项全 0 时视为不可用，宁缺毋滥 */
@@ -414,8 +426,10 @@ class OpenAiProvider(
             1. items：每项对应一种可食用食物/饮品，同一食物不重复；复合菜品（如「番茄炒蛋」）作为一个条目。
             2. name：具体名称，不含品牌与份量，如「番茄炒蛋」「板烧鸡腿堡」「生椰拿铁」。
             3. brand：仅当品牌可从图片包装或文字确认时填写，否则空串，严禁臆测。
-            4. grams：可食用部分克数（饮品按 ml 近似为 g），必须大于 0；参考常见份量与包装规格（一份米饭约 200g、一瓶饮料 500ml、一包薯片 40g）。
-            5. packaged：有品牌包装、条码或明确商品名时为 true；家常菜、散装食材、餐馆现制菜品为 false。
+            4. servings：可数单位的份数，如 1 个鸡蛋、2 个包子、1 勺蛋白粉、1 瓶饮料；无法按份表述（如一份炒菜）时填 0。
+            5. grams：可食用部分总克数（饮品按 ml 近似为 g）；参考常见份量与包装规格（一份米饭约 200g、一瓶饮料 500ml、一包薯片 40g）。
+               实在无法判断克数时填 0 —— 系统会用内置的每份克数乘以 servings 推导，不要为了填满而编造。
+            6. packaged：有品牌包装、条码或明确商品名时为 true；家常菜、散装食材、餐馆现制菜品为 false。
 
             【title 规则】
             - ≤12 个汉字的中文名词短语，不加标点、emoji、引号，不写份量与热量。
@@ -429,7 +443,7 @@ class OpenAiProvider(
             - 一致、只有图片或只有文字时为空串。
 
             【输出】仅返回一个 JSON 对象，不要解释、不要 markdown 代码块：
-            {"title":"菜名","items":[{"name":"食物","brand":"","grams":200,"packaged":false}],"conflict":""}
+            {"title":"菜名","items":[{"name":"食物","brand":"","servings":1,"grams":200,"packaged":false}],"conflict":""}
         """.trimIndent()
 
         val DEFAULT_FILL = """

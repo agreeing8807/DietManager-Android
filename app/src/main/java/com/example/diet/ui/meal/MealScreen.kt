@@ -498,13 +498,22 @@ private fun MealItemDialog(
     )
 }
 
+/** 1 份显示为「1」，1.5 份显示为「1.5」 */
+private fun servingsLabel(value: Float): String =
+    if (value % 1f == 0f) value.roundToInt().toString()
+    else String.format(java.util.Locale.CHINA, "%.1f", value)
+
 @Composable
 private fun MealItemRow(item: MealItem, onUpdateGrams: (Float) -> Unit, onDelete: () -> Unit) {
     var gramsText by remember(item.id, item.grams) { mutableStateOf(item.grams.roundToInt().toString()) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
-                if (item.brand.isBlank()) item.name else "${item.brand} ${item.name}",
+                buildString {
+                    if (item.brand.isNotBlank()) append("${item.brand} ")
+                    append(item.name)
+                    if (item.servings > 0f) append(" ×${servingsLabel(item.servings)} 份")
+                },
                 style = MaterialTheme.typography.bodyLarge
             )
             val nutrition = MealItems.nutritionOf(item)

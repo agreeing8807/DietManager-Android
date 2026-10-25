@@ -148,12 +148,20 @@ object DatabaseModule {
         }
     }
 
+    /** v8：餐食条目支持「份数」（个/勺/包），0 表示仍按克记录 */
+    private val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE meal_item ADD COLUMN servings REAL NOT NULL DEFAULT 0")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "diet_manager.db")
             .addMigrations(
-                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                MIGRATION_6_7, MIGRATION_7_8
             )
             .fallbackToDestructiveMigration()
             .build()

@@ -157,22 +157,8 @@ class MealViewModel @Inject constructor(
             // 明细落库：只存每 100g 基准与克数，记录头的总量由明细重算
             mealRepository.addItems(
                 recordId = recordId,
-                items = analysis?.items.orEmpty().mapIndexed { index, item ->
-                    MealItem(
-                        recordId = recordId,
-                        name = item.name,
-                        brand = item.brand,
-                        grams = item.grams,
-                        kcalPer100g = item.per100?.kcal ?: 0f,
-                        proteinPer100g = item.per100?.proteinG ?: 0f,
-                        carbPer100g = item.per100?.carbG ?: 0f,
-                        fatPer100g = item.per100?.fatG ?: 0f,
-                        source = item.source,
-                        confidence = item.confidence,
-                        status = item.status,
-                        sortOrder = index
-                    )
-                }
+                items = analysis?.items.orEmpty()
+                    .mapIndexed { index, item -> MealItems.toEntity(recordId, index, item) }
             )
             val failure = result.exceptionOrNull()?.message
             _uiState.update {
