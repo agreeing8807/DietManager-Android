@@ -16,9 +16,11 @@ import com.example.diet.domain.MealSummaryFormatter
 import com.example.diet.domain.NutritionTools
 import com.example.diet.domain.Per100g
 import com.example.diet.domain.ResolvedItem
+import com.example.diet.domain.model.DataStatus
 import com.example.diet.domain.model.FoodSuggestion
 import com.example.diet.domain.model.FoodSuggestionRequest
 import com.example.diet.domain.model.MealAnalysis
+import com.example.diet.domain.model.MealAnalysisItem
 import com.example.diet.domain.model.MealAnalysisRequest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -93,48 +95,59 @@ class OpenAiProvider(
             // 2) 本地成分表优先；包装商品跳过通用条目（品牌规格差异大）
             val resolved = mutableListOf<ResolvedItem>()
             val missingNames = mutableListOf<String>()
-            val pending = mutableListOf<IdentifyItemJson>()
-            items.forEach { item ->
+            val pending = mutableListOf<Pair<Int, IdentifyItemJson>>()
+            // 每条识别结果对应的解析结果，null 表示没查到数据，用于落库明细
+            val resolvedByIndex = mutableMapOf<Int, ResolvedItem>()
+
+            items.forEachIndexed { index, item ->
                 if (item.grams <= 0f) {
                     missingNames += item.name
-                    return@forEach
+                    return@forEachIndexed
                 }
                 val local = if (item.packaged) null else FoodCompositionTable.lookup(item.name)
                 if (local != null) {
-                    resolved += ResolvedItem(
+                    val hit = ResolvedItem(
                         name = item.name,
                         grams = item.grams,
                         per100 = local.per100,
-                        source = FoodCompositionTable.SOURCE
+                        source = FoodCompositionTable.SOURCE,
+                        confidence = 1f
                     )
+                    resolved += hit
+                    resolvedByIndex[index] = hit
                 } else {
-                    pending += item
+                    pending += index to item
                 }
             }
 
             // 3) 未命中的项由模型补每 100g 数据（一次请求批量完成）
             if (pending.isNotEmpty()) {
-                val fills = requestFill(pending)
-                pending.forEach { item ->
+                val fills = requestFill(pending.map { it.second })
+                pending.forEach { (index, item) ->
                     val fill = fills[normalizeName(item.name)]
                     val per100 = fill?.toPer100()
                     if (fill != null && per100 != null) {
-                        resolved += ResolvedItem(
+                        val hit = ResolvedItem(
                             name = item.name,
                             grams = item.grams,
                             per100 = per100,
-                            source = fill.source.trim().ifBlank { "模型补充" }
+                            source = fill.source.trim().ifBlank { "模型补充" },
+                            confidence = fill.confidence
                         )
+                        resolved += hit
+                        resolvedByIndex[index] = hit
                     } else {
                         // 补数不可用时，包装商品退回本地同类条目，其余标记缺失
                         val fallback = FoodCompositionTable.lookup(item.name)
                         if (fallback != null) {
-                            resolved += ResolvedItem(
+                            val hit = ResolvedItem(
                                 name = item.name,
                                 grams = item.grams,
                                 per100 = fallback.per100,
                                 source = "${FoodCompositionTable.SOURCE}（同类参考）"
                             )
+                            resolved += hit
+                            resolvedByIndex[index] = hit
                         } else {
                             missingNames += item.name
                         }
@@ -142,6 +155,26 @@ class OpenAiProvider(
                 }
             }
 
+            // 明细：即使没查到数据也保留条目，用户可补克数或直接删除
+            val analysisItems = items.mapIndexed { index, item ->
+                val hit = resolvedByIndex[index]
+                MealAnalysisItem(
+                    name = item.name,
+                    grams = item.grams,
+                    brand = item.brand,
+                    per100 = hit?.per100,
+                    source = hit?.source.orEmpty(),
+                    confidence = hit?.confidence ?: 0f,
+                    status = if (hit != null) DataStatus.ESTIMATED else DataStatus.MISSING
+                )
+            }
+
+            // 数据状态在这里一次确定：全缺 / 部分缺 / 完整（份量仍为估算）
+            val status = when {
+                resolved.isEmpty() -> DataStatus.MISSING
+                missingNames.isNotEmpty() -> DataStatus.PARTIAL
+                else -> DataStatus.ESTIMATED
+            }
             val totals = NutritionTools.validate(NutritionTools.sum(resolved)).totals
             val gramsSum = resolved.filter { it.per100 != null }.fold(0f) { acc, i -> acc + i.grams }
             val summary = MealSummaryFormatter.build(
@@ -159,8 +192,42 @@ class OpenAiProvider(
                 carbG = totals.carbG,
                 fatG = totals.fatG,
                 summary = summary,
-                title = sanitizeTitle(identify.title)
+                title = sanitizeTitle(identify.title),
+                status = status,
+                items = analysisItems
             )
+        }
+    }
+
+    /**
+     * 只补缺失的营养基准：不重新识别、不改克数，
+     * 一次请求覆盖所有缺数据的条目；补不到的条目原样返回。
+     */
+    override suspend fun fillNutrition(items: List<MealAnalysisItem>): Result<List<MealAnalysisItem>> {
+        val need = items.filter { it.per100 == null && it.name.isNotBlank() }
+        if (need.isEmpty()) return Result.success(items)
+        if (apiKey.isBlank()) return Result.failure(
+            IllegalStateException("未配置 ${config.name} 的 API Key")
+        )
+        return runCatching {
+            val fills = requestFill(
+                need.map { IdentifyItemJson(name = it.name, brand = it.brand, grams = it.grams) }
+            )
+            items.map { item ->
+                if (item.per100 != null) return@map item
+                val fill = fills[normalizeName(item.name)]
+                val per100 = fill?.toPer100()
+                if (fill == null || per100 == null) {
+                    item
+                } else {
+                    item.copy(
+                        per100 = per100,
+                        source = fill.source.trim().ifBlank { "模型补充" },
+                        confidence = fill.confidence,
+                        status = DataStatus.ESTIMATED
+                    )
+                }
+            }
         }
     }
 

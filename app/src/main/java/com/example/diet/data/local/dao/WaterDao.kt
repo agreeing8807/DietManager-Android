@@ -22,6 +22,10 @@ interface WaterDao {
     @Query("SELECT * FROM water_record WHERE date = :date ORDER BY recordedAt ASC")
     fun observeByDate(date: String): Flow<List<WaterRecord>>
 
+    /** 往日明细：一次性查询，供用户展开后修改 */
+    @Query("SELECT * FROM water_record WHERE date = :date ORDER BY recordedAt ASC")
+    suspend fun getByDate(date: String): List<WaterRecord>
+
     /** 计入水分的总量（旧数据 waterMl=0 时按 volumeMl 兜底） */
     @Query(
         "SELECT COALESCE(SUM(CASE WHEN waterMl > 0 THEN waterMl ELSE volumeMl END),0) " +

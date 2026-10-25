@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -28,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
@@ -39,6 +41,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,7 +65,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.diet.data.local.entity.MealItem
 import com.example.diet.data.local.entity.MealRecord
+import com.example.diet.domain.MealItems
+import com.example.diet.domain.model.DataStatus
 import com.example.diet.domain.model.MealType
 import com.example.diet.ui.component.Chip
 import com.example.diet.ui.component.SectionCard
@@ -76,12 +82,14 @@ import kotlin.math.roundToInt
 fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
     val day by viewModel.dayState.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val detailItems by viewModel.detailItems.collectAsStateWithLifecycle()
 
     var selectedType by remember { mutableStateOf(MealType.fromHour(LocalTime.now().hour)) }
     var description by remember { mutableStateOf("") }
     var captured by remember { mutableStateOf<ByteArray?>(null) }
     var preview by remember { mutableStateOf<ImageBitmap?>(null) }
     var showSuggestions by remember { mutableStateOf(false) }
+    var detailMeal by remember { mutableStateOf<MealRecord?>(null) }
     var editingMeal by remember { mutableStateOf<MealRecord?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -268,13 +276,30 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
             ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("合计 ${day.totalCalories} kcal", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "合计 ${day.totalCalories} kcal（含饮品）",
+                            style = MaterialTheme.typography.titleMedium
+                        )
                         Text("目标 $goal kcal · 剩余 $remaining kcal", style = MaterialTheme.typography.bodyMedium)
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "蛋白质 ${day.proteinG.roundToInt()} g · 碳水 ${day.carbG.roundToInt()} g · 脂肪 ${day.fatG.roundToInt()} g",
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (day.pendingMeals > 0) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "${day.pendingMeals} 条记录营养数据不完整，合计可能偏低",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "点按任意一餐可查看并修正食物明细",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -297,6 +322,10 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
             items(day.meals, key = { it.id }) { meal ->
                 MealTimelineRow(
                     meal = meal,
+                    onDetail = {
+                        detailMeal = meal
+                        viewModel.openDetail(meal)
+                    },
                     onEdit = { editingMeal = meal },
                     onDelete = { viewModel.deleteMeal(meal) }
                 )
@@ -318,6 +347,21 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
         )
     }
 
+    detailMeal?.let { meal ->
+        MealItemDialog(
+            meal = meal,
+            items = detailItems,
+            analyzing = state.analyzing,
+            onUpdateGrams = { item, grams -> viewModel.updateItemGrams(item, grams) },
+            onDelete = { item -> viewModel.deleteItem(item) },
+            onReanalyze = { viewModel.reanalyze(meal) },
+            onDismiss = {
+                detailMeal = null
+                viewModel.closeDetail()
+            }
+        )
+    }
+
     editingMeal?.let { meal ->
         EditMealDialog(
             meal = meal,
@@ -331,9 +375,14 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun MealTimelineRow(meal: MealRecord, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun MealTimelineRow(
+    meal: MealRecord,
+    onDetail: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
     Card(
-        Modifier.fillMaxWidth(),
+        Modifier.fillMaxWidth().clickable(onClick = onDetail),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -352,17 +401,22 @@ private fun MealTimelineRow(meal: MealRecord, onEdit: () -> Unit, onDelete: () -
             }
             Column(Modifier.weight(1f)) {
                 Text(meal.description, style = MaterialTheme.typography.titleMedium)
-                val missingData = meal.summary.startsWith("⚠")
-                val statusText = when {
-                    missingData && meal.analyzedByAi -> "营养数据缺失 · AI 未查到可靠来源"
-                    missingData -> "营养数据缺失"
-                    meal.analyzedByAi -> "${meal.caloriesKcal} kcal · AI 分析"
-                    else -> "${meal.caloriesKcal} kcal · 手动"
+                // 状态来自数据字段，不再依赖 summary 文案前缀
+                val statusText = when (meal.status) {
+                    DataStatus.MISSING ->
+                        if (meal.analyzedByAi) "营养数据缺失 · AI 未查到可靠来源" else "营养数据缺失"
+                    DataStatus.PARTIAL -> "${meal.caloriesKcal} kcal · 部分食物缺少数据"
+                    DataStatus.ESTIMATED -> "${meal.caloriesKcal} kcal · AI 分析"
+                    DataStatus.CONFIRMED -> "${meal.caloriesKcal} kcal · 已确认"
                 }
                 Text(
                     statusText,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (missingData) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    color = if (meal.status.needsAttention) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    }
                 )
                 if (meal.summary.isNotBlank()) {
                     Text(
@@ -383,6 +437,107 @@ private fun MealTimelineRow(meal: MealRecord, onEdit: () -> Unit, onDelete: () -
             IconButton(onClick = onDelete) {
                 Icon(Icons.Filled.Delete, contentDescription = "删除", Modifier.size(18.dp), tint = Color(0xFFE53935))
             }
+        }
+    }
+}
+
+/**
+ * 食物明细：每项只改克数或删除，营养按每 100g 基准本地重算。
+ * 这是"数据可修正"的入口 —— 识别错了不用重新分析整餐。
+ */
+@Composable
+private fun MealItemDialog(
+    meal: MealRecord,
+    items: List<MealItem>,
+    analyzing: Boolean,
+    onUpdateGrams: (MealItem, Float) -> Unit,
+    onDelete: (MealItem) -> Unit,
+    onReanalyze: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("食物明细") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(meal.description, style = MaterialTheme.typography.titleMedium)
+                if (items.isEmpty()) {
+                    Text(
+                        "这条记录没有条目明细（多为历史数据或手动记录），合计仍按记录本身计算",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    items.forEach { item ->
+                        MealItemRow(
+                            item = item,
+                            onUpdateGrams = { grams -> onUpdateGrams(item, grams) },
+                            onDelete = { onDelete(item) }
+                        )
+                    }
+                    HorizontalDivider()
+                    Text(
+                        "改克数后按每 100g 基准本地重算，整餐合计与状态会自动更新；" +
+                            "摘要文字仍为分析时的快照",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                // 条件由当前条目推导，补全成功后按钮会自动消失
+                if (items.isEmpty() || items.any { !it.hasBasis }) {
+                    TextButton(onClick = onReanalyze, enabled = !analyzing) {
+                        Text(if (items.isEmpty()) "重新识别这餐" else "补全缺失营养")
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("完成") } }
+    )
+}
+
+@Composable
+private fun MealItemRow(item: MealItem, onUpdateGrams: (Float) -> Unit, onDelete: () -> Unit) {
+    var gramsText by remember(item.id, item.grams) { mutableStateOf(item.grams.roundToInt().toString()) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (item.brand.isBlank()) item.name else "${item.brand} ${item.name}",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            val nutrition = MealItems.nutritionOf(item)
+            Text(
+                buildString {
+                    if (item.hasBasis) {
+                        append("约 ${nutrition.kcal} kcal · 蛋白 ${nutrition.proteinG.roundToInt()} g · ")
+                    } else {
+                        append("缺营养数据 · ")
+                    }
+                    append(item.source.ifBlank { "无来源" })
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (item.hasBasis) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                }
+            )
+        }
+        OutlinedTextField(
+            value = gramsText,
+            onValueChange = { text -> gramsText = text.filter { it.isDigit() || it == '.' } },
+            label = { Text("g") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.width(76.dp)
+        )
+        IconButton(onClick = { gramsText.toFloatOrNull()?.let(onUpdateGrams) }) {
+            Icon(Icons.Filled.Check, contentDescription = "应用克数", Modifier.size(18.dp))
+        }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, contentDescription = "删除", Modifier.size(18.dp), tint = Color(0xFFE53935))
         }
     }
 }
@@ -429,6 +584,11 @@ private fun EditMealDialog(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "若该餐已有食物明细，营养数值以明细为准，此处修改不会生效；请点开记录修改克数。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         },

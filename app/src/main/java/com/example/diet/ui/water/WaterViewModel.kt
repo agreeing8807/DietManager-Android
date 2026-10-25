@@ -9,14 +9,17 @@ import com.example.diet.data.local.entity.WaterRecord
 import com.example.diet.data.repository.DrinkPresetRepository
 import com.example.diet.data.repository.ProfileRepository
 import com.example.diet.data.repository.WaterRepository
+import com.example.diet.domain.DayLedger
 import com.example.diet.domain.DrinkCalculator
 import com.example.diet.domain.model.DrinkKind
 import com.example.diet.domain.model.DrinkType
 import com.example.diet.util.DateUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -38,6 +41,12 @@ data class WaterUiState(
     val isLoading: Boolean = true
 )
 
+/** 展开查看的往日明细（往日列表本身只有每日汇总） */
+data class PastDayDetail(
+    val date: String,
+    val records: List<WaterRecord> = emptyList()
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class WaterViewModel @Inject constructor(
@@ -56,16 +65,17 @@ class WaterViewModel @Inject constructor(
                 waterRepository.observeByDate(date),
                 waterRepository.observeDailyTotalsBetween(start, date)
             ) { presets, records, daily ->
+                val intake = DayLedger.of(emptyList(), records)
                 WaterUiState(
                     profile = profile,
                     date = date,
                     presets = presets,
                     todayRecords = records,
-                    todayWaterMl = records.fold(0) { acc, r -> acc + if (r.waterMl > 0) r.waterMl else r.volumeMl },
-                    todayCalories = records.fold(0) { acc, r -> acc + r.caloriesKcal },
-                    proteinG = records.fold(0f) { acc, r -> acc + r.proteinG },
-                    carbG = records.fold(0f) { acc, r -> acc + r.carbG },
-                    fatG = records.fold(0f) { acc, r -> acc + r.fatG },
+                    todayWaterMl = intake.waterMl,
+                    todayCalories = intake.caloriesKcal,
+                    proteinG = intake.proteinG,
+                    carbG = intake.carbG,
+                    fatG = intake.fatG,
                     pastDays = daily.filter { it.date != date },
                     isLoading = false
                 )
@@ -73,8 +83,29 @@ class WaterViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), WaterUiState())
 
+    private val _pastDayDetail = MutableStateFlow<PastDayDetail?>(null)
+    val pastDayDetail: StateFlow<PastDayDetail?> = _pastDayDetail.asStateFlow()
+
     init {
         viewModelScope.launch { presetRepository.ensureDefaults() }
+    }
+
+    /** 展开/收起往日某一天；往日列表本身只有汇总，展开时才读取明细 */
+    fun togglePastDay(date: String) {
+        if (_pastDayDetail.value?.date == date) {
+            _pastDayDetail.value = null
+            return
+        }
+        viewModelScope.launch {
+            _pastDayDetail.value = PastDayDetail(date, waterRepository.getByDate(date))
+        }
+    }
+
+    /** 修改/删除后刷新已展开的往日明细 */
+    private suspend fun refreshPastDay(date: String) {
+        val current = _pastDayDetail.value ?: return
+        if (current.date != date) return
+        _pastDayDetail.value = current.copy(records = waterRepository.getByDate(date))
     }
 
     /** 按配方比例计算并记录一次饮用，不调用大模型 */
@@ -118,6 +149,7 @@ class WaterViewModel @Inject constructor(
                     isMilkTea = preset.name == "奶茶"
                 )
             )
+            refreshPastDay(record.date)
         }
     }
 
@@ -167,11 +199,15 @@ class WaterViewModel @Inject constructor(
                     powderGrams = mix.powderGrams
                 )
             )
+            refreshPastDay(record.date)
         }
     }
 
     fun deleteDrink(record: WaterRecord) {
-        viewModelScope.launch { waterRepository.deleteWater(record) }
+        viewModelScope.launch {
+            waterRepository.deleteWater(record)
+            refreshPastDay(record.date)
+        }
     }
 
     /** 自定义水种：按每 100ml 填写比例 */

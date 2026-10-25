@@ -5,12 +5,14 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.example.diet.data.local.dao.DrinkPresetDao
 import com.example.diet.data.local.dao.MealDao
+import com.example.diet.data.local.dao.MealItemDao
 import com.example.diet.data.local.dao.QuickItemDao
 import com.example.diet.data.local.dao.ReminderDao
 import com.example.diet.data.local.dao.UserProfileDao
 import com.example.diet.data.local.dao.WaterDao
 import com.example.diet.data.local.dao.WeightDao
 import com.example.diet.data.local.entity.DrinkPreset
+import com.example.diet.data.local.entity.MealItem
 import com.example.diet.data.local.entity.MealRecord
 import com.example.diet.data.local.entity.QuickItem
 import com.example.diet.data.local.entity.ReminderSetting
@@ -26,9 +28,10 @@ import com.example.diet.data.local.entity.WeightRecord
         WaterRecord::class,
         ReminderSetting::class,
         QuickItem::class,
-        DrinkPreset::class
+        DrinkPreset::class,
+        MealItem::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -36,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userProfileDao(): UserProfileDao
     abstract fun weightDao(): WeightDao
     abstract fun mealDao(): MealDao
+    abstract fun mealItemDao(): MealItemDao
     abstract fun waterDao(): WaterDao
     abstract fun reminderDao(): ReminderDao
     abstract fun quickItemDao(): QuickItemDao

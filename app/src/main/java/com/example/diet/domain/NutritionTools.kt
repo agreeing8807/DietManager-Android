@@ -29,7 +29,9 @@ data class ResolvedItem(
     val name: String,
     val grams: Float,
     val per100: Per100g?,
-    val source: String = ""
+    val source: String = "",
+    /** 数据可靠程度：本地成分表为 1，模型补数为模型自评，未知为 0 */
+    val confidence: Float = 0f
 )
 
 /** 校验结果：totals 可能被修正，violations 记录修正原因 */

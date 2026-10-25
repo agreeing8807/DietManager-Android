@@ -2,6 +2,7 @@ package com.example.diet.data.local
 
 import androidx.room.TypeConverter
 import com.example.diet.domain.model.ActivityLevel
+import com.example.diet.domain.model.DataStatus
 import com.example.diet.domain.model.DrinkKind
 import com.example.diet.domain.model.DrinkType
 import com.example.diet.domain.model.Gender
@@ -26,4 +27,9 @@ class Converters {
 
     /** 兼容新增字段缺失/未知取值，默认按液体型处理 */
     @TypeConverter fun strToDrinkKind(v: String) = DrinkKind.fromNameOrDefault(v)
+
+    @TypeConverter fun dataStatusToStr(v: DataStatus) = v.name
+
+    /** 兼容新增字段缺失/未知取值，默认按估算处理 */
+    @TypeConverter fun strToDataStatus(v: String) = DataStatus.fromNameOrDefault(v)
 }

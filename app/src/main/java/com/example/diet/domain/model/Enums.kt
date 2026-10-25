@@ -98,3 +98,27 @@ enum class DrinkKind {
             values().firstOrNull { it.name == raw } ?: LIQUID
     }
 }
+
+/**
+ * 数据状态：区分「真实数值」与「估算/缺失」，不再依赖字符串前缀判断。
+ * - [CONFIRMED]：用户输入或按配方确定性计算，可直接采信；
+ * - [ESTIMATED]：模型识别 + 成分表换算，份量有估算成分；
+ * - [PARTIAL]：部分食物缺少数据，合计只覆盖了部分条目；
+ * - [MISSING]：没有可靠营养数据，数值全为 0，不应计入统计结论。
+ */
+@Serializable
+enum class DataStatus {
+    CONFIRMED,
+    ESTIMATED,
+    PARTIAL,
+    MISSING;
+
+    /** 是否需要在界面上提示数据不完整 */
+    val needsAttention: Boolean get() = this == PARTIAL || this == MISSING
+
+    companion object {
+        /** 兼容旧备份/旧数据中缺失或未知的取值 */
+        fun fromNameOrDefault(raw: String?): DataStatus =
+            values().firstOrNull { it.name == raw } ?: ESTIMATED
+    }
+}

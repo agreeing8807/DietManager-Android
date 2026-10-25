@@ -23,6 +23,9 @@ interface MealDao {
     @Query("SELECT * FROM meal_record WHERE date = :date ORDER BY type ASC, createdAt ASC")
     fun observeByDate(date: String): Flow<List<MealRecord>>
 
+    @Query("SELECT * FROM meal_record WHERE id = :id")
+    suspend fun getById(id: Long): MealRecord?
+
     @Query("SELECT COALESCE(SUM(caloriesKcal),0) FROM meal_record WHERE date = :date")
     fun observeCaloriesByDate(date: String): Flow<Int>
 

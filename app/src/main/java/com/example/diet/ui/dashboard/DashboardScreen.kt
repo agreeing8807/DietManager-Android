@@ -147,6 +147,14 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
                 MacroBar("蛋白质", state.proteinG, targets.proteinG, ProteinColor)
                 MacroBar("碳水", state.carbG, targets.carbG, CarbColor)
                 MacroBar("脂肪", state.fatG, targets.fatG, FatColor)
+                if (state.pendingMeals > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "${state.pendingMeals} 条餐食缺少营养数据，以上合计偏低于实际",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
 

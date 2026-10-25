@@ -13,6 +13,8 @@ class WaterRepository @Inject constructor(
 ) {
     fun observeByDate(date: String): Flow<List<WaterRecord>> = dao.observeByDate(date)
 
+    suspend fun getByDate(date: String): List<WaterRecord> = dao.getByDate(date)
+
     fun observeVolumeByDate(date: String): Flow<Int> = dao.observeVolumeByDate(date)
 
     fun observeCaloriesByDate(date: String): Flow<Int> = dao.observeCaloriesByDate(date)

@@ -2,11 +2,17 @@ package com.example.diet.ui.meal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.diet.data.local.entity.MealItem
 import com.example.diet.data.local.entity.MealRecord
 import com.example.diet.data.local.entity.UserProfile
 import com.example.diet.data.repository.AnalysisRepository
 import com.example.diet.data.repository.MealRepository
 import com.example.diet.data.repository.ProfileRepository
+import com.example.diet.data.repository.WaterRepository
+import com.example.diet.domain.DailyIntake
+import com.example.diet.domain.DayLedger
+import com.example.diet.domain.MealItems
+import com.example.diet.domain.model.DataStatus
 import com.example.diet.domain.model.FoodSuggestion
 import com.example.diet.domain.model.MealAnalysis
 import com.example.diet.domain.model.MealType
@@ -19,7 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -31,12 +37,17 @@ data class MealDayState(
     val date: String = "",
     val today: String = "",
     val meals: List<MealRecord> = emptyList(),
-    val profile: UserProfile = UserProfile()
+    val profile: UserProfile = UserProfile(),
+    /** 当日摄入统一口径（含饮品），由 DayLedger 计算 */
+    val intake: DailyIntake = DailyIntake.EMPTY
 ) {
-    val totalCalories: Int get() = meals.sumOf { it.caloriesKcal }
-    val proteinG: Float get() = meals.fold(0f) { a, m -> a + m.proteinG }
-    val carbG: Float get() = meals.fold(0f) { a, m -> a + m.carbG }
-    val fatG: Float get() = meals.fold(0f) { a, m -> a + m.fatG }
+    val totalCalories: Int get() = intake.caloriesKcal
+    val proteinG: Float get() = intake.proteinG
+    val carbG: Float get() = intake.carbG
+    val fatG: Float get() = intake.fatG
+    val waterMl: Int get() = intake.waterMl
+    /** 营养数据不完整的餐食条数 */
+    val pendingMeals: Int get() = intake.pendingMeals
     val isToday: Boolean get() = date == today
 }
 
@@ -53,6 +64,7 @@ data class MealUiState(
 class MealViewModel @Inject constructor(
     private val mealRepository: MealRepository,
     private val profileRepository: ProfileRepository,
+    private val waterRepository: WaterRepository,
     private val analysisRepository: AnalysisRepository
 ) : ViewModel() {
 
@@ -64,18 +76,32 @@ class MealViewModel @Inject constructor(
             val today = DateUtils.today(profile.dayStartHour)
             Triple(profile, today, selected.ifBlank { today })
         }.flatMapLatest { (profile, today, date) ->
-            mealRepository.observeByDate(date).map { meals ->
+            // 饮品与餐食一起纳入同一口径，避免各页面各算一套
+            combine(
+                mealRepository.observeByDate(date),
+                waterRepository.observeByDate(date)
+            ) { meals, drinks ->
                 MealDayState(
                     date = date,
                     today = today,
                     meals = meals.sortedBy { it.createdAt },
-                    profile = profile
+                    profile = profile,
+                    intake = DayLedger.of(meals, drinks)
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), MealDayState())
 
     private val _uiState = MutableStateFlow(MealUiState())
     val uiState: StateFlow<MealUiState> = _uiState.asStateFlow()
+
+    /** 正在查看明细的记录 id，0 表示未打开 */
+    private val detailRecordId = MutableStateFlow(0L)
+
+    val detailItems: StateFlow<List<MealItem>> = detailRecordId
+        .flatMapLatest { id ->
+            if (id == 0L) flowOf(emptyList()) else mealRepository.observeItems(id)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun selectDate(date: String) {
         if (date.isBlank()) return
@@ -123,9 +149,31 @@ class MealViewModel @Inject constructor(
                 summary = analysis?.summary
                     ?: result.exceptionOrNull()?.message?.let { "未能自动分析：$it（已按手动记录保存）" }
                     ?: "已记录（未分析）",
-                analyzedByAi = analysis != null
+                analyzedByAi = analysis != null,
+                // 分析失败时数值全为 0，明确标记为缺失而非"估算"
+                status = analysis?.status ?: DataStatus.MISSING
             )
-            mealRepository.addMeal(record)
+            val recordId = mealRepository.addMeal(record)
+            // 明细落库：只存每 100g 基准与克数，记录头的总量由明细重算
+            mealRepository.addItems(
+                recordId = recordId,
+                items = analysis?.items.orEmpty().mapIndexed { index, item ->
+                    MealItem(
+                        recordId = recordId,
+                        name = item.name,
+                        brand = item.brand,
+                        grams = item.grams,
+                        kcalPer100g = item.per100?.kcal ?: 0f,
+                        proteinPer100g = item.per100?.proteinG ?: 0f,
+                        carbPer100g = item.per100?.carbG ?: 0f,
+                        fatPer100g = item.per100?.fatG ?: 0f,
+                        source = item.source,
+                        confidence = item.confidence,
+                        status = item.status,
+                        sortOrder = index
+                    )
+                }
+            )
             val failure = result.exceptionOrNull()?.message
             _uiState.update {
                 it.copy(
@@ -143,18 +191,119 @@ class MealViewModel @Inject constructor(
 
     fun updateMeal(record: MealRecord, type: MealType, description: String, calories: Int) {
         viewModelScope.launch {
-            mealRepository.updateMeal(
-                record.copy(
-                    type = type,
-                    description = description.ifBlank { record.description },
-                    caloriesKcal = calories.coerceAtLeast(0)
+            val trimmed = description.ifBlank { record.description }
+            if (mealRepository.getItems(record.id).isEmpty()) {
+                // 没有明细（历史记录 / 手动记录）：记录头就是唯一数据源
+                mealRepository.updateMeal(
+                    record.copy(
+                        type = type,
+                        description = trimmed,
+                        caloriesKcal = calories.coerceAtLeast(0),
+                        status = when {
+                            calories > 0 -> DataStatus.CONFIRMED
+                            else -> record.status
+                        }
+                    )
                 )
-            )
+            } else {
+                // 有明细：数值以明细为准，避免记录头与条目两处数字打架
+                mealRepository.updateMeal(record.copy(type = type, description = trimmed))
+                mealRepository.syncTotals(record.id)
+            }
         }
     }
 
     fun deleteMeal(record: MealRecord) {
         viewModelScope.launch { mealRepository.deleteMeal(record) }
+    }
+
+    // ---------------- 条目明细 ----------------
+
+    fun openDetail(record: MealRecord) {
+        detailRecordId.value = record.id
+    }
+
+    fun closeDetail() {
+        detailRecordId.value = 0L
+    }
+
+    /**
+     * 修正某项克数：营养按每 100g 基准本地重算，并标记该项已由用户确认。
+     * 不需要重新调用模型，也不会改动其他条目。
+     */
+    fun updateItemGrams(item: MealItem, grams: Float) {
+        if (grams <= 0f) return
+        viewModelScope.launch {
+            mealRepository.updateItem(
+                item.copy(
+                    grams = grams.coerceIn(0f, 5000f),
+                    status = DataStatus.CONFIRMED
+                )
+            )
+        }
+    }
+
+    /** 删除某项后，记录头会自动重算；删空则整餐标记为缺失 */
+    fun deleteItem(item: MealItem) {
+        viewModelScope.launch { mealRepository.deleteItem(item) }
+    }
+
+    /**
+     * 让失败可逆：
+     * - 没有明细（分析失败 / 历史记录）→ 用原始描述整餐重新识别；
+     * - 有明细但缺营养 → 只补缺失项，不动已确认的名称与克数。
+     */
+    fun reanalyze(record: MealRecord) {
+        if (_uiState.value.analyzing) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(analyzing = true, message = null) }
+            val items = mealRepository.getItems(record.id)
+            val message = if (items.isEmpty()) {
+                analysisRepository.analyzeMeal(record.description, null).fold(
+                    onSuccess = { analysis ->
+                        mealRepository.replaceItems(
+                            recordId = record.id,
+                            items = analysis.items.mapIndexed { index, item ->
+                                MealItems.toEntity(record.id, index, item)
+                            }
+                        )
+                        mealRepository.updateMeal(
+                            record.copy(summary = analysis.summary, status = analysis.status)
+                        )
+                        if (analysis.items.isEmpty()) {
+                            "仍未识别出食物，可补充描述后重试"
+                        } else {
+                            "已重新识别"
+                        }
+                    },
+                    onFailure = { "未完成：${it.message ?: "重新识别失败"}" }
+                )
+            } else {
+                val missing = items.filter { !it.hasBasis }
+                if (missing.isEmpty()) {
+                    "该餐条目数据完整，无需补全"
+                } else {
+                    analysisRepository.fillNutrition(missing.map(MealItems::toAnalysisItem)).fold(
+                        onSuccess = { filled ->
+                            val updates = filled.mapIndexedNotNull { index, item ->
+                                val origin = missing.getOrNull(index) ?: return@mapIndexedNotNull null
+                                if (item.per100 == null) return@mapIndexedNotNull null
+                                MealItems.toEntity(record.id, index, item)
+                                    .copy(id = origin.id, sortOrder = origin.sortOrder)
+                            }
+                            if (updates.isEmpty()) {
+                                "仍未查到可靠数据，可手动补克数或删除该条目"
+                            } else {
+                                mealRepository.updateItems(updates)
+                                "已补全 ${updates.size} 项营养数据"
+                            }
+                        },
+                        onFailure = { "未完成：${it.message ?: "补全失败"}" }
+                    )
+                }
+            }
+            _uiState.update { it.copy(analyzing = false, message = message) }
+        }
     }
 
     /** “吃什么”建议：按当天剩余热量向大模型请求 */

@@ -3,6 +3,7 @@ package com.example.diet.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.example.diet.domain.model.DataStatus
 import com.example.diet.domain.model.DrinkType
 import kotlinx.serialization.Serializable
 
@@ -34,5 +35,7 @@ data class WaterRecord(
     val servings: Float = 0f,
     /** 冲调型：本次干粉总重（份数 × 每份克数），仅用于展示 */
     val powderGrams: Float = 0f,
+    /** 水种数据由配方确定性计算或用户直接输入，默认视为可信 */
+    val status: DataStatus = DataStatus.CONFIRMED,
     val recordedAt: Long = System.currentTimeMillis()
 )

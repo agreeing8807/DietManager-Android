@@ -1,5 +1,6 @@
 package com.example.diet.ui.water
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -78,6 +79,7 @@ fun WaterScreen(navController: NavHostController, viewModel: WaterViewModel = hi
     var servings by remember { mutableStateOf(1f) }
     var showCustomDialog by remember { mutableStateOf(false) }
     var editingRecord by remember { mutableStateOf<WaterRecord?>(null) }
+    val pastDayDetail by viewModel.pastDayDetail.collectAsStateWithLifecycle()
 
     val waterGoal = state.profile.waterGoalMl.coerceAtLeast(1)
     val progress = state.todayWaterMl.toFloat() / waterGoal
@@ -216,37 +218,67 @@ fun WaterScreen(navController: NavHostController, viewModel: WaterViewModel = hi
             }
         }
 
-        // ---------------- 往日汇总（只读） ----------------
+        // ---------------- 往日记录（可展开修改） ----------------
         if (state.pastDays.isNotEmpty()) {
             item {
                 Text("往日记录", style = MaterialTheme.typography.titleMedium)
             }
             items(state.pastDays, key = { it.date }) { day ->
+                val detail = pastDayDetail?.takeIf { it.date == day.date }
                 Card(
-                    Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth().clickable { viewModel.togglePastDay(day.date) },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            DateUtils.dayLabel(day.date),
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            "${day.volumeMl} ml",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = DrinkBlue
-                        )
+                    Column {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                DateUtils.dayLabel(day.date),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                "${day.volumeMl} ml",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = DrinkBlue
+                            )
+                            Text(
+                                if (detail == null) "  ▸" else "  ▾",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (detail != null) {
+                            HorizontalDivider()
+                            Column(
+                                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (detail.records.isEmpty()) {
+                                    Text(
+                                        "这一天没有可显示的明细",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                detail.records.forEach { record ->
+                                    PastDayRecordRow(
+                                        record = record,
+                                        onEdit = { editingRecord = record },
+                                        onDelete = { viewModel.deleteDrink(record) }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
             item {
                 Text(
-                    "往日仅保留每日总量，不可修改",
+                    "点按某天可展开明细并修改或删除",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -460,6 +492,39 @@ private fun WaterTimelineRow(record: WaterRecord, onEdit: () -> Unit, onDelete: 
             IconButton(onClick = onDelete) {
                 Icon(Icons.Filled.Delete, contentDescription = "删除", Modifier.size(18.dp), tint = Color(0xFFE53935))
             }
+        }
+    }
+}
+
+/** 往日明细中的单条记录：与今日记录同样可改可删 */
+@Composable
+private fun PastDayRecordRow(record: WaterRecord, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            val name = record.drinkName.ifBlank { record.type.label }
+            Text(
+                if (record.servings > 0f) {
+                    "$name ×${servingsLabel(record.servings)} · 加水 ${record.waterMl} ml"
+                } else {
+                    "$name  ${record.volumeMl} ml"
+                },
+                style = MaterialTheme.typography.bodyMedium
+            )
+            val details = buildList {
+                add("水分 ${if (record.waterMl > 0) record.waterMl else record.volumeMl} ml")
+                if (record.caloriesKcal > 0) add("${record.caloriesKcal} kcal")
+            }
+            Text(
+                details.joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onEdit) {
+            Icon(Icons.Filled.Edit, contentDescription = "修改", Modifier.size(16.dp))
+        }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, contentDescription = "删除", Modifier.size(16.dp), tint = Color(0xFFE53935))
         }
     }
 }

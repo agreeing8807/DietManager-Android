@@ -3,6 +3,7 @@ package com.example.diet.data.repository
 import com.example.diet.data.remote.LLMManager
 import com.example.diet.domain.model.FoodSuggestion
 import com.example.diet.domain.model.MealAnalysis
+import com.example.diet.domain.model.MealAnalysisItem
 import com.example.diet.domain.model.MealAnalysisRequest
 import com.example.diet.domain.model.FoodSuggestionRequest
 import com.example.diet.util.DateUtils
@@ -37,6 +38,15 @@ class AnalysisRepository @Inject constructor(
         val provider = llmManager.getActiveProvider()
             ?: return Result.failure(IllegalStateException("请先在设置中添加并选择一个 API"))
         return provider.analyzeMeal(req)
+    }
+
+    /** 补全已有条目缺失的营养数据（不重新识别） */
+    suspend fun fillNutrition(
+        items: List<MealAnalysisItem>
+    ): Result<List<MealAnalysisItem>> {
+        val provider = llmManager.getActiveProvider()
+            ?: return Result.failure(IllegalStateException("请先在设置中添加并选择一个 API"))
+        return provider.fillNutrition(items)
     }
 
     suspend fun suggestFoods(remainingCalories: Int, date: String): Result<List<FoodSuggestion>> {

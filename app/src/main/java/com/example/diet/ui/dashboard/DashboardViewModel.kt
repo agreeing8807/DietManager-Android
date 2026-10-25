@@ -14,6 +14,8 @@ import com.example.diet.data.repository.ProfileRepository
 import com.example.diet.data.repository.QuickItemRepository
 import com.example.diet.data.repository.WaterRepository
 import com.example.diet.data.repository.WeightRepository
+import com.example.diet.domain.DayLedger
+import com.example.diet.domain.model.DataStatus
 import com.example.diet.domain.model.DrinkType
 import com.example.diet.domain.model.MealType
 import com.example.diet.util.DateUtils
@@ -54,6 +56,8 @@ data class DashboardUiState(
     val proteinG: Float = 0f,
     val carbG: Float = 0f,
     val fatG: Float = 0f,
+    /** 今日营养数据不完整的餐食条数 */
+    val pendingMeals: Int = 0,
     /** 近 30 天体重记录（每天取最后一条） */
     val weightTrend: List<WeightRecord> = emptyList(),
     val quickItems: List<QuickItem> = emptyList(),
@@ -133,21 +137,21 @@ class DashboardViewModel @Inject constructor(
                     ) { meals, drinks -> SelectedBundle(meals, drinks) }
 
                     combine(todayBundle, monthBundle, selectedBundle) { todayData, monthData, dayData ->
+                        // 统计口径统一由 DayLedger 定义，页面不再各自求和
+                        val todayIntake = DayLedger.of(todayData.meals, todayData.drinks)
+                        val selectedIntake = DayLedger.of(dayData.meals, dayData.drinks)
                         DashboardUiState(
                             profile = profile,
                             date = today,
                             month = month,
                             monthOffset = offset,
                             selectedDate = selected,
-                            calorieIntake = todayData.meals.sumOf { it.caloriesKcal } +
-                                todayData.drinks.sumOf { it.caloriesKcal },
-                            waterMl = todayData.drinks.sumOf { if (it.waterMl > 0) it.waterMl else it.volumeMl },
-                            proteinG = todayData.meals.fold(0f) { acc, m -> acc + m.proteinG } +
-                                todayData.drinks.fold(0f) { acc, d -> acc + d.proteinG },
-                            carbG = todayData.meals.fold(0f) { acc, m -> acc + m.carbG } +
-                                todayData.drinks.fold(0f) { acc, d -> acc + d.carbG },
-                            fatG = todayData.meals.fold(0f) { acc, m -> acc + m.fatG } +
-                                todayData.drinks.fold(0f) { acc, d -> acc + d.fatG },
+                            calorieIntake = todayIntake.caloriesKcal,
+                            waterMl = todayIntake.waterMl,
+                            proteinG = todayIntake.proteinG,
+                            carbG = todayIntake.carbG,
+                            fatG = todayIntake.fatG,
+                            pendingMeals = todayIntake.pendingMeals,
                             weightTrend = todayData.weights
                                 .groupBy { it.date }
                                 .map { (_, sameDay) ->
@@ -159,11 +163,8 @@ class DashboardViewModel @Inject constructor(
                             // 热量 = 饮食 + 饮品，与“今日摄入进度”口径一致
                             monthCalories = mergeCalories(monthData.calories, monthData.water),
                             selectedEvents = buildEvents(dayData.meals, dayData.drinks),
-                            selectedWaterMl = dayData.drinks.sumOf {
-                                if (it.waterMl > 0) it.waterMl else it.volumeMl
-                            },
-                            selectedCalories = dayData.meals.sumOf { it.caloriesKcal } +
-                                dayData.drinks.sumOf { it.caloriesKcal },
+                            selectedWaterMl = selectedIntake.waterMl,
+                            selectedCalories = selectedIntake.caloriesKcal,
                             isLoading = false
                         )
                     }
@@ -233,7 +234,9 @@ class DashboardViewModel @Inject constructor(
                         carbG = item.carbG,
                         fatG = item.fatG,
                         summary = "快捷记录",
-                        analyzedByAi = false
+                        analyzedByAi = false,
+                        // 快捷项为预设的确定数值
+                        status = DataStatus.CONFIRMED
                     )
                 )
             }
