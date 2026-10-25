@@ -41,32 +41,44 @@ data class ApiError(
     val code: String = ""
 )
 
-/** 结构化解析：单餐分析 */
+/**
+ * 结构化解析：餐食识别（模型只负责“看到什么”，不估算营养）
+ */
 @Serializable
-data class MealAnalysisJson(
+data class MealIdentifyJson(
     val title: String = "",
-    val caloriesKcal: Int = 0,
-    val proteinG: Float = 0f,
-    val carbG: Float = 0f,
-    val fatG: Float = 0f,
-    /** 本次食用份量说明，如「1 包 50g」 */
-    val basis: String = "",
-    /** 每 100g 对照值（包装食品） */
-    val per100g: Per100gJson? = null,
-    /** 数据来源（品牌官网营养标签、食品数据库等） */
-    val source: String = "",
-    /** searched / estimated / missing */
-    val dataQuality: String = "",
-    val summary: String = ""
+    val items: List<IdentifyItemJson> = emptyList(),
+    /** 图文不一致时的简要说明，无冲突留空 */
+    val conflict: String = ""
 )
 
-/** 每 100g 营养对照 */
 @Serializable
-data class Per100gJson(
-    val caloriesKcal: Int = 0,
-    val proteinG: Float = 0f,
-    val carbG: Float = 0f,
-    val fatG: Float = 0f
+data class IdentifyItemJson(
+    val name: String = "",
+    val brand: String = "",
+    /** 可食用部分克数（饮品按 ml 近似为 g） */
+    val grams: Float = 0f,
+    /** 是否为有包装的商品（决定是否需要按商品查营养） */
+    val packaged: Boolean = false
+)
+
+/** 结构化解析：未命中本地成分表时的每 100g 补数 */
+@Serializable
+data class NutritionFillJson(
+    val items: List<FillItemJson> = emptyList()
+)
+
+@Serializable
+data class FillItemJson(
+    val name: String = "",
+    val kcalPer100g: Float = 0f,
+    val proteinPer100g: Float = 0f,
+    val carbPer100g: Float = 0f,
+    val fatPer100g: Float = 0f,
+    /** 数据来源/依据，如「同类食物典型值」；未知留空 */
+    val source: String = "",
+    /** 0~1，低于 0.3 视为不可用 */
+    val confidence: Float = 0f
 )
 
 /** 结构化解析：食物推荐 */

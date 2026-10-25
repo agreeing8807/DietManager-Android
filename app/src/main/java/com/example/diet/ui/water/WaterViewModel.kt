@@ -10,6 +10,7 @@ import com.example.diet.data.repository.DrinkPresetRepository
 import com.example.diet.data.repository.ProfileRepository
 import com.example.diet.data.repository.WaterRepository
 import com.example.diet.domain.DrinkCalculator
+import com.example.diet.domain.model.DrinkKind
 import com.example.diet.domain.model.DrinkType
 import com.example.diet.util.DateUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -120,6 +121,55 @@ class WaterViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 冲调型记录：营养按份数固定，加水量只决定总容量与浓度。
+     * 干粉体积按 1g≈1ml 计入总容量；加水量全额计入当日饮水。
+     */
+    fun addMixedDrink(preset: DrinkPreset, servings: Float, waterMl: Int) {
+        if (servings <= 0f || waterMl <= 0) return
+        viewModelScope.launch {
+            val date = DateUtils.today(uiState.value.profile.dayStartHour)
+            val mix = DrinkCalculator.mixOf(preset, servings, waterMl)
+            waterRepository.addWater(
+                WaterRecord(
+                    date = date,
+                    type = typeOf(preset),
+                    volumeMl = mix.totalMl,
+                    waterMl = mix.waterMl,
+                    drinkName = preset.name,
+                    caloriesKcal = mix.caloriesKcal,
+                    proteinG = mix.proteinG,
+                    carbG = mix.carbG,
+                    fatG = mix.fatG,
+                    servings = mix.servings,
+                    powderGrams = mix.powderGrams
+                )
+            )
+        }
+    }
+
+    /** 修改冲调记录（份数与加水量可改） */
+    fun updateMixedDrink(record: WaterRecord, preset: DrinkPreset, servings: Float, waterMl: Int) {
+        if (servings <= 0f || waterMl <= 0) return
+        viewModelScope.launch {
+            val mix = DrinkCalculator.mixOf(preset, servings, waterMl)
+            waterRepository.updateWater(
+                record.copy(
+                    type = typeOf(preset),
+                    volumeMl = mix.totalMl,
+                    waterMl = mix.waterMl,
+                    drinkName = preset.name,
+                    caloriesKcal = mix.caloriesKcal,
+                    proteinG = mix.proteinG,
+                    carbG = mix.carbG,
+                    fatG = mix.fatG,
+                    servings = mix.servings,
+                    powderGrams = mix.powderGrams
+                )
+            )
+        }
+    }
+
     fun deleteDrink(record: WaterRecord) {
         viewModelScope.launch { waterRepository.deleteWater(record) }
     }
@@ -151,14 +201,43 @@ class WaterViewModel @Inject constructor(
         }
     }
 
+    /** 冲调型水种：营养按每份干粉填写，与冲调水量无关 */
+    fun addPowderPreset(
+        name: String,
+        servingGrams: Float,
+        caloriesPerServing: Float,
+        proteinPerServing: Float,
+        carbPerServing: Float,
+        fatPerServing: Float
+    ) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val order = uiState.value.presets.size
+            presetRepository.add(
+                DrinkPreset(
+                    name = name.trim(),
+                    builtIn = false,
+                    kind = DrinkKind.POWDER,
+                    servingGrams = servingGrams.coerceAtLeast(0f),
+                    caloriesPerServing = caloriesPerServing.coerceAtLeast(0f),
+                    proteinPerServing = proteinPerServing.coerceAtLeast(0f),
+                    carbPerServing = carbPerServing.coerceAtLeast(0f),
+                    fatPerServing = fatPerServing.coerceAtLeast(0f),
+                    sortOrder = order
+                )
+            )
+        }
+    }
+
     fun deletePreset(preset: DrinkPreset) {
         viewModelScope.launch { presetRepository.delete(preset) }
     }
 
-    private fun typeOf(preset: DrinkPreset): DrinkType = when (preset.name) {
-        "纯净水" -> DrinkType.WATER
-        "绿茶" -> DrinkType.TEA
-        "奶茶" -> DrinkType.MILK_TEA
+    private fun typeOf(preset: DrinkPreset): DrinkType = when {
+        preset.kind == DrinkKind.POWDER -> DrinkType.POWDER
+        preset.name == "纯净水" -> DrinkType.WATER
+        preset.name == "绿茶" -> DrinkType.TEA
+        preset.name == "奶茶" -> DrinkType.MILK_TEA
         else -> DrinkType.OTHER
     }
 }

@@ -35,16 +35,33 @@ object DateUtils {
     /** 10/24 周五 */
     fun dayLabel(date: String): String {
         val d = parse(date) ?: return date
-        val week = when (d.dayOfWeek.value) {
-            1 -> "周一"
-            2 -> "周二"
-            3 -> "周三"
-            4 -> "周四"
-            5 -> "周五"
-            6 -> "周六"
-            else -> "周日"
-        }
-        return "${d.monthValue}/${d.dayOfMonth} $week"
+        return "${d.monthValue}/${d.dayOfMonth} ${weekdayLabel(d)}"
+    }
+
+    /** 2026-10-25 18:30 周日 */
+    fun nowLabel(): String {
+        val now = LocalDateTime.now()
+        return "${dateOf(now.toLocalDate())} ${minuteOfDayToString(now.hour * 60 + now.minute)} " +
+            weekdayLabel(now.toLocalDate())
+    }
+
+    /** 按小时划分用餐时段，供推荐时选择合适食物 */
+    fun mealPeriod(hour: Int = LocalDateTime.now().hour): String = when (hour) {
+        in 5..9 -> "早餐"
+        in 10..14 -> "午餐"
+        in 15..16 -> "下午加餐"
+        in 17..20 -> "晚餐"
+        else -> "夜宵"
+    }
+
+    private fun weekdayLabel(date: LocalDate): String = when (date.dayOfWeek.value) {
+        1 -> "周一"
+        2 -> "周二"
+        3 -> "周三"
+        4 -> "周四"
+        5 -> "周五"
+        6 -> "周六"
+        else -> "周日"
     }
 
     fun minuteOfDayToString(minutes: Int): String {

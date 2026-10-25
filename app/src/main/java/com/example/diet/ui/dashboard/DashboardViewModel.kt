@@ -297,12 +297,24 @@ class DashboardViewModel @Inject constructor(
                 isDrink = true,
                 title = drink.drinkName.ifBlank { drink.type.label },
                 detail = buildString {
-                    append("${drink.volumeMl} ml")
-                    append(" · 水分 ${if (drink.waterMl > 0) drink.waterMl else drink.volumeMl} ml")
+                    if (drink.servings > 0f) {
+                        // 冲调型：份数决定营养，水量决定总容量
+                        append("×${servingsLabel(drink.servings)} 份")
+                        append(" · 加水 ${drink.waterMl} ml")
+                        append(" · 总 ${drink.volumeMl} ml")
+                    } else {
+                        append("${drink.volumeMl} ml")
+                        append(" · 水分 ${if (drink.waterMl > 0) drink.waterMl else drink.volumeMl} ml")
+                    }
                     if (drink.caloriesKcal > 0) append(" · ${drink.caloriesKcal} kcal")
                 }
             )
         }
         return events.sortedBy { it.first }.map { it.second }
     }
+
+    /** 1 份显示为「1」，1.5 份显示为「1.5」 */
+    private fun servingsLabel(value: Float): String =
+        if (value % 1f == 0f) value.roundToInt().toString()
+        else String.format(java.util.Locale.CHINA, "%.1f", value)
 }

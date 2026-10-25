@@ -30,7 +30,7 @@ data class SettingsUiState(
     val newVendorId: String = "",
     val newModel: String = "",
     val newApiKey: String = "",
-    val promptAnalyze: String = "",
+    val promptIdentify: String = "",
     val promptSuggest: String = "",
     val message: String? = null,
     val adding: Boolean = false,
@@ -54,7 +54,7 @@ class SettingsViewModel @Inject constructor(
             val profile = profileRepository.getProfile()
             val vendors = llmManager.vendors
             val first = vendors.first()
-            val promptAnalyze = apiKeyStore.getSetting("prompt_analyze", OpenAiProvider.DEFAULT_ANALYZE)
+            val promptIdentify = apiKeyStore.getSetting("prompt_identify", OpenAiProvider.DEFAULT_IDENTIFY)
             val promptSuggest = apiKeyStore.getSetting("prompt_suggest", OpenAiProvider.DEFAULT_SUGGEST)
             _uiState.value = SettingsUiState(
                 profile = profile,
@@ -62,7 +62,7 @@ class SettingsViewModel @Inject constructor(
                 entries = apiKeyStore.getEntries(),
                 newVendorId = first.id,
                 newModel = first.defaultModel,
-                promptAnalyze = promptAnalyze,
+                promptIdentify = promptIdentify,
                 promptSuggest = promptSuggest
             )
         }
@@ -179,9 +179,9 @@ class SettingsViewModel @Inject constructor(
 
     // ---------------- Prompt ----------------
 
-    fun setPromptAnalyze(value: String) {
-        apiKeyStore.setSetting("prompt_analyze", value)
-        _uiState.update { it.copy(promptAnalyze = value) }
+    fun setPromptIdentify(value: String) {
+        apiKeyStore.setSetting("prompt_identify", value)
+        _uiState.update { it.copy(promptIdentify = value) }
     }
 
     fun setPromptSuggest(value: String) {
@@ -190,11 +190,11 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun resetPrompts() {
-        apiKeyStore.setSetting("prompt_analyze", OpenAiProvider.DEFAULT_ANALYZE)
+        apiKeyStore.setSetting("prompt_identify", OpenAiProvider.DEFAULT_IDENTIFY)
         apiKeyStore.setSetting("prompt_suggest", OpenAiProvider.DEFAULT_SUGGEST)
         _uiState.update {
             it.copy(
-                promptAnalyze = OpenAiProvider.DEFAULT_ANALYZE,
+                promptIdentify = OpenAiProvider.DEFAULT_IDENTIFY,
                 promptSuggest = OpenAiProvider.DEFAULT_SUGGEST,
                 message = "已恢复默认提示语"
             )

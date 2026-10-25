@@ -78,5 +78,23 @@ enum class DrinkType(
     TEA("茶", 0, false),
     COFFEE("咖啡", 5, false),
     MILK_TEA("奶茶", 65, true),
-    OTHER("其他", 30, false)
+    OTHER("其他", 30, false),
+    POWDER("冲调", 0, false)
+}
+
+/**
+ * 水种形态：
+ * - LIQUID：液体型，按每 100ml 的营养比例换算；
+ * - POWDER：冲调型，营养按「每份干粉」固定，冲调水量只影响总容量与浓度。
+ */
+@Serializable
+enum class DrinkKind {
+    LIQUID,
+    POWDER;
+
+    companion object {
+        /** 兼容旧备份/旧数据中缺失或未知的取值 */
+        fun fromNameOrDefault(raw: String?): DrinkKind =
+            values().firstOrNull { it.name == raw } ?: LIQUID
+    }
 }

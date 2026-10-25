@@ -61,5 +61,9 @@ data class MealAnalysisRequest(
 data class FoodSuggestionRequest(
     val remainingCalories: Int,
     val context: String,
-    val date: String
+    val date: String,
+    /** 当前系统时间，如「2026-10-25 18:30 周日」，用于按时段推荐 */
+    val currentTime: String = "",
+    /** 当前用餐时段，如「晚餐」，空串表示未知 */
+    val mealPeriod: String = ""
 )

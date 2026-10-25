@@ -5,6 +5,10 @@ import com.example.diet.domain.model.FoodSuggestion
 import com.example.diet.domain.model.MealAnalysis
 import com.example.diet.domain.model.MealAnalysisRequest
 import com.example.diet.domain.model.FoodSuggestionRequest
+import com.example.diet.util.DateUtils
+import com.example.diet.util.ImageCompressor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,9 +25,13 @@ class AnalysisRepository @Inject constructor(
     }
 
     suspend fun analyzeMeal(description: String, imageBytes: ByteArray? = null): Result<MealAnalysis> {
+        // 统一在出口压缩：只影响上传体积，不改动原始照片；解码耗时应离开主线程
+        val compressed = imageBytes?.let { bytes ->
+            withContext(Dispatchers.IO) { ImageCompressor.compress(bytes) }
+        }
         val req = MealAnalysisRequest(
             description = description,
-            imageBytes = imageBytes,
+            imageBytes = compressed,
             userContext = userContext()
         )
         val provider = llmManager.getActiveProvider()
@@ -35,7 +43,9 @@ class AnalysisRepository @Inject constructor(
         val req = FoodSuggestionRequest(
             remainingCalories = remainingCalories.coerceAtLeast(0),
             context = userContext(),
-            date = date
+            date = date,
+            currentTime = DateUtils.nowLabel(),
+            mealPeriod = DateUtils.mealPeriod()
         )
         val provider = llmManager.getActiveProvider()
             ?: return Result.failure(IllegalStateException("请先在设置中添加并选择一个 API"))

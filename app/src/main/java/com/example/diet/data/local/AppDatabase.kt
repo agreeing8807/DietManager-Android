@@ -28,7 +28,7 @@ import com.example.diet.data.local.entity.WeightRecord
         QuickItem::class,
         DrinkPreset::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

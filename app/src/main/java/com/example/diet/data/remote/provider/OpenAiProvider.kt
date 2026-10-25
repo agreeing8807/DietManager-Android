@@ -1,28 +1,41 @@
 package com.example.diet.data.remote.provider
 
+import com.example.diet.data.local.FoodCompositionTable
 import com.example.diet.data.remote.ApiKeyStore
 import com.example.diet.data.remote.LLMProvider
 import com.example.diet.data.remote.OpenAiCompatibleService
 import com.example.diet.data.remote.model.ChatCompletionRequest
 import com.example.diet.data.remote.model.ChatMessage
-import com.example.diet.data.remote.model.FoodSuggestionJson
+import com.example.diet.data.remote.model.FillItemJson
 import com.example.diet.data.remote.model.FoodSuggestionListJson
-import com.example.diet.data.remote.model.MealAnalysisJson
+import com.example.diet.data.remote.model.IdentifyItemJson
+import com.example.diet.data.remote.model.MealIdentifyJson
+import com.example.diet.data.remote.model.NutritionFillJson
 import com.example.diet.data.remote.model.ResponseFormat
+import com.example.diet.domain.MealSummaryFormatter
+import com.example.diet.domain.NutritionTools
+import com.example.diet.domain.Per100g
+import com.example.diet.domain.ResolvedItem
 import com.example.diet.domain.model.FoodSuggestion
 import com.example.diet.domain.model.FoodSuggestionRequest
 import com.example.diet.domain.model.MealAnalysis
 import com.example.diet.domain.model.MealAnalysisRequest
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import java.util.Base64
+import kotlin.math.roundToInt
 
 /**
  * 单一 OpenAI 兼容实现，通过 VendorConfig 适配不同国内厂商。
+ *
+ * 营养计算分三步，模型只承担「识别」与「补数」，不做四则运算：
+ * 1. 识别：模型只回答看到了什么食物、品牌、克数、是否包装（[MealIdentifyJson]）；
+ * 2. 本地：常见食物直接查 [FoodCompositionTable] 做确定性换算；
+ * 3. 补数：本地未命中（或包装商品）时才让模型补「每 100g」数据（[NutritionFillJson]），
+ *    并要求给出 source 与 confidence，低置信度数据直接丢弃。
  */
 class OpenAiProvider(
     override val id: String,
@@ -37,14 +50,15 @@ class OpenAiProvider(
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
-     * 老版本自定义提示语里缺少的数据字段（title / source / dataQuality 等）自动补齐，
-     * 保证拍照标题与“可溯源、缺失不臆测”的规则对旧配置同样生效。
+     * 提示语使用新的 key（prompt_identify）：
+     * 语义已从「估算营养」变为「只识别食物」，旧的 prompt_analyze 内容会让模型输出营养数值，
+     * 与本地计算架构冲突，因此不再读取。
      */
-    private fun analyzePrompt(): String {
-        val base = apiKeyStore.getSetting("prompt_analyze", DEFAULT_ANALYZE).ifBlank { DEFAULT_ANALYZE }
-        if (base.contains("\"dataQuality\"")) return base
-        return base + "\n" + LEGACY_EXTRA_FIELDS
-    }
+    private fun identifyPrompt(): String =
+        apiKeyStore.getSetting("prompt_identify", DEFAULT_IDENTIFY).ifBlank { DEFAULT_IDENTIFY }
+
+    private fun fillPrompt(): String =
+        apiKeyStore.getSetting("prompt_fill", DEFAULT_FILL).ifBlank { DEFAULT_FILL }
 
     private fun suggestPrompt(): String =
         apiKeyStore.getSetting("prompt_suggest", DEFAULT_SUGGEST).ifBlank { DEFAULT_SUGGEST }
@@ -65,34 +79,165 @@ class OpenAiProvider(
         if (req.imageBytes == null && req.description.isBlank()) {
             return Result.failure(IllegalStateException("请描述这餐吃了什么，或使用拍照识别"))
         }
-        val userContent = buildUserContent(req)
-        val request = ChatCompletionRequest(
-            model = model.ifBlank { config.defaultModel },
-            messages = listOf(
-                ChatMessage("system", JsonPrimitive(analyzePrompt())),
-                ChatMessage("user", userContent)
-            ),
-            temperature = 0.3,
-            response_format = ResponseFormat("json_object")
-        )
+
         return runCatching {
-            val resp = service.chat("${config.authPrefix} $apiKey", request)
-            resp.error?.let { throw IllegalStateException(it.message.ifBlank { "接口返回错误" }) }
-            val raw = resp.choices.firstOrNull()?.message?.content?.takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("模型未返回内容（请确认所选模型支持图片识别，或改用文字描述）")
-            val parsed = json.decodeFromString<MealAnalysisJson>(stripFences(raw))
-            // 模型标注数据缺失时，强制清零，避免任何臆测数值进入统计
-            val missing = parsed.dataQuality.equals("missing", ignoreCase = true)
+            // 1) 只做识别
+            val identify = requestIdentify(req)
+            val items = identify.items
+                .map { it.sanitized() }
+                .filter { it.name.isNotBlank() }
+            if (items.isEmpty()) {
+                throw IllegalStateException("未从这餐中识别出具体食物，请补充文字描述")
+            }
+
+            // 2) 本地成分表优先；包装商品跳过通用条目（品牌规格差异大）
+            val resolved = mutableListOf<ResolvedItem>()
+            val missingNames = mutableListOf<String>()
+            val pending = mutableListOf<IdentifyItemJson>()
+            items.forEach { item ->
+                if (item.grams <= 0f) {
+                    missingNames += item.name
+                    return@forEach
+                }
+                val local = if (item.packaged) null else FoodCompositionTable.lookup(item.name)
+                if (local != null) {
+                    resolved += ResolvedItem(
+                        name = item.name,
+                        grams = item.grams,
+                        per100 = local.per100,
+                        source = FoodCompositionTable.SOURCE
+                    )
+                } else {
+                    pending += item
+                }
+            }
+
+            // 3) 未命中的项由模型补每 100g 数据（一次请求批量完成）
+            if (pending.isNotEmpty()) {
+                val fills = requestFill(pending)
+                pending.forEach { item ->
+                    val fill = fills[normalizeName(item.name)]
+                    val per100 = fill?.toPer100()
+                    if (fill != null && per100 != null) {
+                        resolved += ResolvedItem(
+                            name = item.name,
+                            grams = item.grams,
+                            per100 = per100,
+                            source = fill.source.trim().ifBlank { "模型补充" }
+                        )
+                    } else {
+                        // 补数不可用时，包装商品退回本地同类条目，其余标记缺失
+                        val fallback = FoodCompositionTable.lookup(item.name)
+                        if (fallback != null) {
+                            resolved += ResolvedItem(
+                                name = item.name,
+                                grams = item.grams,
+                                per100 = fallback.per100,
+                                source = "${FoodCompositionTable.SOURCE}（同类参考）"
+                            )
+                        } else {
+                            missingNames += item.name
+                        }
+                    }
+                }
+            }
+
+            val totals = NutritionTools.validate(NutritionTools.sum(resolved)).totals
+            val gramsSum = resolved.filter { it.per100 != null }.fold(0f) { acc, i -> acc + i.grams }
+            val summary = MealSummaryFormatter.build(
+                items = resolved,
+                totals = totals,
+                gramsSum = gramsSum,
+                sources = resolved.mapNotNull { it.source.takeIf { s -> s.isNotBlank() } }.distinct(),
+                missingNames = missingNames,
+                conflict = identify.conflict.trim(),
+                imageIgnored = imageIgnored
+            )
             MealAnalysis(
-                caloriesKcal = if (missing) 0 else parsed.caloriesKcal.coerceAtLeast(0),
-                proteinG = if (missing) 0f else parsed.proteinG.coerceAtLeast(0f),
-                carbG = if (missing) 0f else parsed.carbG.coerceAtLeast(0f),
-                fatG = if (missing) 0f else parsed.fatG.coerceAtLeast(0f),
-                summary = buildAnalysisSummary(parsed, missing, imageIgnored),
-                title = sanitizeTitle(parsed.title)
+                caloriesKcal = totals.kcal,
+                proteinG = totals.proteinG,
+                carbG = totals.carbG,
+                fatG = totals.fatG,
+                summary = summary,
+                title = sanitizeTitle(identify.title)
             )
         }
     }
+
+    /** 第一步：只识别食物，不要求任何营养数值 */
+    private suspend fun requestIdentify(req: MealAnalysisRequest): MealIdentifyJson {
+        val request = ChatCompletionRequest(
+            model = model.ifBlank { config.defaultModel },
+            messages = listOf(
+                ChatMessage("system", JsonPrimitive(identifyPrompt())),
+                ChatMessage("user", buildUserContent(req))
+            ),
+            temperature = 0.2,
+            response_format = ResponseFormat("json_object")
+        )
+        val raw = complete(
+            request,
+            "模型未返回内容（请确认所选模型支持图片识别，或改用文字描述）"
+        )
+        return json.decodeFromString<MealIdentifyJson>(stripFences(raw))
+    }
+
+    /** 第三步：为本地未命中的食物补「每 100g」数据；失败不阻断整体，按缺失处理 */
+    private suspend fun requestFill(items: List<IdentifyItemJson>): Map<String, FillItemJson> {
+        val userText = buildString {
+            append("请为下列食物补全每 100g（饮品每 100ml）营养数据，name 必须与输入完全一致：")
+            items.forEach {
+                append("\n- name=").append(it.name)
+                if (it.brand.isNotBlank()) append("；brand=").append(it.brand)
+                append("；本次份量=").append(it.grams.roundToInt()).append("g")
+                if (it.packaged) append("；属于包装商品")
+            }
+        }
+        val request = ChatCompletionRequest(
+            model = model.ifBlank { config.defaultModel },
+            messages = listOf(
+                ChatMessage("system", JsonPrimitive(fillPrompt())),
+                ChatMessage("user", JsonPrimitive(userText))
+            ),
+            temperature = 0.1,
+            response_format = ResponseFormat("json_object")
+        )
+        return runCatching {
+            val raw = complete(request, "营养补全未返回内容")
+            json.decodeFromString<NutritionFillJson>(stripFences(raw))
+                .items
+                .filter { it.name.isNotBlank() }
+                .associateBy { normalizeName(it.name) }
+        }.getOrElse { emptyMap() }
+    }
+
+    private suspend fun complete(request: ChatCompletionRequest, emptyMessage: String): String {
+        val resp = service.chat("${config.authPrefix} $apiKey", request)
+        resp.error?.let { throw IllegalStateException(it.message.ifBlank { "接口返回错误" }) }
+        return resp.choices.firstOrNull()?.message?.content?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException(emptyMessage)
+    }
+
+    private fun IdentifyItemJson.sanitized(): IdentifyItemJson = copy(
+        name = name.trim(),
+        brand = brand.trim(),
+        grams = if (grams > 0f) grams.coerceAtMost(5000f) else 0f
+    )
+
+    /** 置信度过低或四项全 0 时视为不可用，宁缺毋滥 */
+    private fun FillItemJson.toPer100(): Per100g? {
+        if (confidence < MIN_CONFIDENCE) return null
+        if (kcalPer100g <= 0f && proteinPer100g <= 0f && carbPer100g <= 0f && fatPer100g <= 0f) return null
+        return Per100g(
+            kcal = kcalPer100g.coerceAtLeast(0f),
+            proteinG = proteinPer100g.coerceAtLeast(0f),
+            carbG = carbPer100g.coerceAtLeast(0f),
+            fatG = fatPer100g.coerceAtLeast(0f)
+        )
+    }
+
+    private fun normalizeName(value: String): String =
+        value.replace(Regex("[\\s（）()【】\\[\\]·、,，.。/\\-]"), "").lowercase()
 
     /**
      * 标题净化（与提示词规范对应）：
@@ -111,48 +256,16 @@ class OpenAiProvider(
         return title.take(14)
     }
 
-    /**
-     * 把「份量 / 每 100g 对照 / 数据来源」合并进一条可持久化的 summary：
-     * MealRecord 只存 summary，这样重装或重启后溯源信息仍在。
-     */
-    private fun buildAnalysisSummary(
-        parsed: MealAnalysisJson,
-        missing: Boolean,
-        imageIgnored: Boolean
-    ): String {
-        val lines = mutableListOf<String>()
-        if (missing) {
-            lines += "⚠ 未找到可靠的营养成分数据，本次不给出数值，避免臆测"
-        } else if (parsed.summary.isNotBlank()) {
-            lines += parsed.summary.trim()
-        }
-
-        if (!missing) {
-            val basis = parsed.basis.trim()
-            val per100 = parsed.per100g?.let {
-                "每 100g：${it.caloriesKcal} kcal / 蛋白 ${format1(it.proteinG)} g / " +
-                    "碳水 ${format1(it.carbG)} g / 脂肪 ${format1(it.fatG)} g"
-            }.orEmpty()
-            when {
-                basis.isNotBlank() && per100.isNotBlank() -> lines += "份量：$basis；$per100"
-                basis.isNotBlank() -> lines += "份量：$basis"
-                per100.isNotBlank() -> lines += per100
-            }
-        }
-
-        if (parsed.source.isNotBlank()) lines += "来源：${parsed.source.trim()}"
-        if (imageIgnored) lines += "（当前模型不支持图片，已按文字描述估算）"
-        return lines.joinToString("\n")
-    }
-
-    private fun format1(value: Float): String =
-        String.format(java.util.Locale.CHINA, "%.1f", value)
-
     override suspend fun suggestFoods(req: FoodSuggestionRequest): Result<List<FoodSuggestion>> {
         if (apiKey.isBlank()) return Result.failure(
             IllegalStateException("未配置 ${config.name} 的 API Key")
         )
         val userText = buildString {
+            if (req.currentTime.isNotBlank()) {
+                append("当前时间：${req.currentTime}")
+                if (req.mealPeriod.isNotBlank()) append("（${req.mealPeriod}时段）")
+                append("。")
+            }
             append("今日剩余可用热量约 ${req.remainingCalories} kcal。")
             if (req.context.isNotBlank()) append("\n用户背景：${req.context}")
         }
@@ -166,10 +279,7 @@ class OpenAiProvider(
             response_format = ResponseFormat("json_object")
         )
         return runCatching {
-            val resp = service.chat("${config.authPrefix} $apiKey", request)
-            resp.error?.let { throw IllegalStateException(it.message.ifBlank { "接口返回错误" }) }
-            val raw = resp.choices.firstOrNull()?.message?.content?.takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("模型未返回内容")
+            val raw = complete(request, "模型未返回内容")
             val parsed = json.decodeFromString<FoodSuggestionListJson>(stripFences(raw))
             parsed.items.map {
                 FoodSuggestion(name = it.name, caloriesKcal = it.caloriesKcal, reason = it.reason)
@@ -188,14 +298,13 @@ class OpenAiProvider(
                         "text",
                         JsonPrimitive(
                             buildString {
-                                append("请根据这张照片估算这餐食物的热量与营养成分，按常见分量合理估算。")
+                                append("识别这张照片里的食物，逐项列出可食用食物/饮品、常见份量与是否包装食品。")
+                                append("\n不要估算热量或营养成分，数值由系统计算。")
                                 if (req.description.isNotBlank()) {
-                                    append("补充说明：${req.description}")
+                                    append("\n用户补充说明：${req.description}")
                                 } else {
-                                    append("用户未填写文字描述，照片即全部信息，请直接按图片判断。")
+                                    append("\n用户未填写文字描述，照片即全部信息。")
                                 }
-                                append("\n若为包装食品，请先联网查证包装上的营养成分表再换算。")
-                                if (req.userContext.isNotBlank()) append("\n用户目标：${req.userContext}")
                             }
                         )
                     )
@@ -211,10 +320,9 @@ class OpenAiProvider(
         } else {
             JsonPrimitive(
                 buildString {
-                    append("请分析以下餐食：")
-                    append(req.description.ifBlank { "（用户未填写文字描述，请按常见分量合理估算）" })
-                    append("\n若为包装食品，请先联网查证包装上的营养成分表再换算。")
-                    if (req.userContext.isNotBlank()) append("\n用户目标：${req.userContext}")
+                    append("识别以下餐食描述里的食物，逐项列出名称、常见份量与是否包装食品。")
+                    append("\n不要估算热量或营养成分，数值由系统计算。")
+                    append("\n描述：").append(req.description)
                 }
             )
         }
@@ -229,63 +337,74 @@ class OpenAiProvider(
     }
 
     companion object {
-        val DEFAULT_ANALYZE = """
-            你是一名严谨的营养师，负责识别用户提供的餐食（文字或照片），并给出准确、可溯源的营养数据。
+        /** 低于该置信度的补数结果视为不可用 */
+        private const val MIN_CONFIDENCE = 0.3f
 
-            【包装/预包装食品】（有品牌、包装、条码或明确商品名，如「某某牌薯片 40g」「无糖酸奶 200ml」）
-            1. 必须先联网搜索该商品的营养成分表，优先品牌官网、电商详情页的营养标签、权威食品数据库，不得凭记忆作答。
-            2. 找到可靠数据后：按用户实际食用份量换算 caloriesKcal/proteinG/carbG/fatG，basis 写明份量（如「1 包 40g」「整瓶 500ml」），per100g 给出每 100 克的对照值，source 写明来源（如「XX 品牌官网营养成分表」），dataQuality 填 "searched"。
-            3. 搜索不到权威数据时：dataQuality 填 "missing"，caloriesKcal/proteinG/carbG/fatG 全部填 0，basis 写实际份量，source 写「未找到可靠来源」，并在 summary 说明缺少哪项数据。严禁臆测或编造任何数值。
+        val DEFAULT_IDENTIFY = """
+            你是食物识别助手。唯一任务是判断用户这一餐吃了什么、大约多少克，不要计算任何营养数值。
 
-            【普通餐食】（家常菜、餐馆菜品、无明显包装）
-            按常见分量合理估算，dataQuality 填 "estimated"，per100g 可为 null，source 填空字符串。
+            【字段要求】
+            1. items：每项对应一种可食用食物/饮品，同一食物不重复；复合菜品（如「番茄炒蛋」）作为一个条目。
+            2. name：具体名称，不含品牌与份量，如「番茄炒蛋」「板烧鸡腿堡」「生椰拿铁」。
+            3. brand：仅当品牌可从图片包装或文字确认时填写，否则空串，严禁臆测。
+            4. grams：可食用部分克数（饮品按 ml 近似为 g），必须大于 0；参考常见份量与包装规格（一份米饭约 200g、一瓶饮料 500ml、一包薯片 40g）。
+            5. packaged：有品牌包装、条码或明确商品名时为 true；家常菜、散装食材、餐馆现制菜品为 false。
 
-            【图片与文字描述同时存在时的标题判定】
-            作用范围：
-            - 图片负责：识别主体食材、烹饪方式、份量体积、包装与品牌外观、餐食类型（正餐/饮品/甜点）。
-            - 文字负责：确定名称、品牌、口味、规格与份量；主观感受（好吃、少油、外卖、加班餐）不作为命名依据。
-            优先级（高 → 低）：
-            1) 文字中显式且具体的食品名称/品牌/菜品名；
-            2) 图片中占画面主导（体积最大或最显眼）的主体食物；
-            3) 文字中的份量/规格（如「半份」「中杯」「约 200g」）——只写入 basis，不写入 title；
-            4) 其余泛化描述（「午饭」「外卖」「随便吃点」）——忽略，标题由图片决定。
-            冲突处理：
-            - 图文一致：取更具体的一方，去掉重复词，不要叠加同义词（如「西红柿番茄炒蛋」）。
-            - 文字更具体且图片可佐证：以文字命名（如文字「番茄炒蛋盖饭」，图片为炒蛋盖饭）。
-            - 文字与图片明显不符（如文字写「沙拉」，图片是汉堡）：以图片主体命名，并在 summary 追加「描述与图片不一致，已按图片识别」。
-            - 文字笼统、图片清晰：以图片主体命名。
-            - 图片含主菜 + 明显配菜/独立饮品：主项在前，最多组合两项，用「+」连接（如「牛肉面+冰美式」）；配菜占比很小时不写。
-            - 两者都不可辨：使用最保守的类别名（如「家常炒菜」「混合沙拉」），不得使用「图片」「照片」「食物」「一餐」等占位词。
-            标题规范：
-            - ≤12 个汉字，中文名词短语；不加标点、emoji、引号，不写份量与热量。
-            - 结构：[品牌]+[菜品/品名]+（可选）[关键口味或主料]，如「麦当劳板烧鸡腿堡」「番茄牛腩面」「瑞幸生椰拿铁」。
-            - 品牌只在文字或包装上可辨识时出现，严禁臆造；不使用「疑似」「可能」等不确定词，不确定性写在 summary。
+            【title 规则】
+            - ≤12 个汉字的中文名词短语，不加标点、emoji、引号，不写份量与热量。
+            - 结构：[品牌]+[菜品/品名]+（可选）[关键口味或主料]。
+            - 主菜在前，最多用「+」连接两项（如「牛肉面+冰美式」）；占比很小的配菜不写。
+            - 图片与文字同时存在：文字给出明确名称/品牌/规格时以文字为准；文字笼统则以图片主体为准。
+            - 禁止使用「图片」「照片」「食物」「一餐」「外卖」等占位词。
 
-            【通用要求】
-            - title 为具体菜名，不超过 12 个字；只有照片没有文字时也必须给出菜名，禁止使用「图片」「照片」「一餐」等占位词。
-            - summary 为一句话点评与建议，不要重复数值。
-            - 整体简洁清晰、结构统一，仅返回一个 JSON 对象，不要包含任何解释或 markdown 代码块：
-            {"title":"菜名","caloriesKcal":整数,"proteinG":浮点数,"carbG":浮点数,"fatG":浮点数,"basis":"份量说明","per100g":{"caloriesKcal":整数,"proteinG":浮点数,"carbG":浮点数,"fatG":浮点数},"source":"数据来源","dataQuality":"searched|estimated|missing","summary":"一句话点评"}
+            【conflict 规则】
+            - 文字描述与图片明显不一致时（如文字「沙拉」而图片是汉堡），用一句话说明差异；
+            - 一致、只有图片或只有文字时为空串。
+
+            【输出】仅返回一个 JSON 对象，不要解释、不要 markdown 代码块：
+            {"title":"菜名","items":[{"name":"食物","brand":"","grams":200,"packaged":false}],"conflict":""}
         """.trimIndent()
 
-        /** 旧版自定义提示语缺少字段时的补齐说明 */
-        val LEGACY_EXTRA_FIELDS = """
-            在 JSON 中额外返回以下字段：
-            "title"（不超过 12 个字的菜名，只有照片也必须给出，禁止用「图片」「照片」等占位词）、
-            "basis"（本次份量说明，如「1 包 50g」）、
-            "per100g"（每 100 克的 caloriesKcal/proteinG/carbG/fatG）、
-            "source"（数据来源）、
-            "dataQuality"（searched / estimated / missing）。
-            标题规则：图文同时存在时，优先采用文字中显式写出的菜名/品牌；文字笼统则用图片主体食物命名；
-            两者明显冲突时以图片为准，并在 summary 注明「描述与图片不一致」；标题 ≤12 字，不加标点与份量。
-            包装食品必须先联网查证营养标签；查不到可靠数据时 dataQuality 填 missing、各项数值填 0 并在 summary 说明，严禁猜测或编造。
+        val DEFAULT_FILL = """
+            你是食物营养成分数据补全工具。用户会给出若干食物名称（可能附带品牌与份量），
+            请为每个食物给出每 100 克（饮品每 100ml）的典型营养值。
+
+            【要求】
+            1. 只补数据，不点评、不合并条目；返回的 name 必须与输入完全一致，条数与输入一致。
+            2. 包装商品：按该商品营养标签的每 100g 值填写，source 写「品牌/商品营养标签」。
+            3. 普通食物：按权威食物成分表典型值填写，source 写「中国食物成分表典型值」等依据。
+            4. 无可靠数据时：四项数值填 0、confidence 填 0、source 空串；严禁编造或估算。
+            5. confidence 为 0~1 的可靠程度，低于 0.3 视为不可用。
+            6. 单位：热量 kcal，蛋白质/碳水/脂肪 g，均为每 100g。
+
+            【输出】仅返回一个 JSON 对象，不要解释、不要 markdown 代码块：
+            {"items":[{"name":"食物","kcalPer100g":0,"proteinPer100g":0,"carbPer100g":0,"fatPer100g":0,"source":"","confidence":0.8}]}
         """.trimIndent()
 
         val DEFAULT_SUGGEST = """
-            你是一名专业的营养师。请根据用户当日的剩余热量额度与饮食目标，推荐合适的食物。
-            仅返回一个 JSON 对象，不要包含任何解释或 markdown 代码块，格式如下：
+            你是一名熟悉大学校园饮食的营养师助手，服务对象是【在校大学生】。
+            请结合「当前时间」「今日剩余热量」与「用户背景」，推荐此刻适合、且在校园里容易买到的食物。
+
+            【按时间段推荐】
+            - 早餐（约 5:00-9:00）：包子、粥、鸡蛋、豆浆、牛奶、全麦面包等，保证蛋白质与主食，避免重油重盐。
+            - 午餐（约 10:00-14:00）：食堂套餐（一荤两素）、盖饭、面食，兼顾蛋白质与蔬菜，热量可略高。
+            - 下午加餐（约 15:00-16:00）：水果、无糖酸奶、坚果、牛奶，控制在高蛋白低糖、小份。
+            - 晚餐（约 17:00-20:00）：清淡为主，蒸煮类、杂粮、蔬菜配优质蛋白，避免接近夜宵的重口味。
+            - 夜宵（约 21:00-5:00）：尽量少吃，可选温牛奶、无糖酸奶、小份水果；避免油炸、高糖、奶茶与含咖啡因饮品。
+            - 若当前时段与剩余热量明显冲突（如深夜仍有大量额度），优先推荐低负担小份食物，并在 reason 中说明。
+
+            【获取渠道】
+            - 只推荐食堂窗口、校园超市、便利店、常见外卖能直接买到的食物；
+            - 名称要具体到能直接下单/购买（如「食堂鸡腿饭套餐」「便利店无糖酸奶 200g」「超市全麦面包 2 片」）；
+            - 不写需要多步烹饪、稀有食材或昂贵餐厅的选项；宿舍可操作的简单搭配可以推荐并注明。
+            - 兼顾学生预算，单份尽量控制在 15 元以内，价格敏感时在 reason 中说明。
+
+            【输出要求】
+            - 按当前时段最合适程度排序，推荐 4-6 项；
+            - reason 用一句话说明「为什么适合现在吃」以及获取渠道，不重复热量数值；
+            - 若剩余热量低于 300 kcal，优先低热量高蛋白的小份选项；若剩余热量充足，可包含一份主食。
+            - 仅返回一个 JSON 对象，不要任何解释或 markdown 代码块：
             {"items":[{"name":"食物名","caloriesKcal":整数,"reason":"推荐理由"}]}
-            推荐 4-6 项，优先低热量高营养的密度食物。
         """.trimIndent()
     }
 }

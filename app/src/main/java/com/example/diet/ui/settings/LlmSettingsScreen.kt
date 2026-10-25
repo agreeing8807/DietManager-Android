@@ -119,9 +119,9 @@ fun LlmSettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
-                        value = state.promptAnalyze,
-                        onValueChange = { viewModel.setPromptAnalyze(it) },
-                        label = { Text("餐食分析 Prompt") },
+                        value = state.promptIdentify,
+                        onValueChange = { viewModel.setPromptIdentify(it) },
+                        label = { Text("食物识别 Prompt") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 4
                     )
