@@ -6,7 +6,9 @@ data class MealAnalysis(
     val proteinG: Float,
     val carbG: Float,
     val fatG: Float,
-    val summary: String
+    val summary: String,
+    /** 模型给出的简短菜名，用于拍照添加时的标题 */
+    val title: String = ""
 )
 
 /** 每日三大营养素目标（克）与折算热量（kcal） */

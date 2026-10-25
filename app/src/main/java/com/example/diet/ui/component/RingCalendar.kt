@@ -1,7 +1,8 @@
 package com.example.diet.ui.component
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,22 +14,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -48,10 +50,10 @@ private val CalorieRingColor = Color(0xFFFF7043)
 private val WeekdayLabels = listOf("一", "二", "三", "四", "五", "六", "日")
 
 /**
- * 紧凑型月历：每天两个圆环。
- * - 上环 = 当日计入水分总量 / 每日饮水目标
- * - 下环 = 当日饮食+饮品热量 / 每日热量目标（此处并排显示）
- * - 填充部分达到的比例，剩余部分为灰色底环；超出目标按 100% 显示
+ * 紧凑型月历：每一天是两个以日期为圆心的同心圆环。
+ * - 内环 = 当日计入水分总量 / 每日饮水目标
+ * - 外环 = 当日饮食+饮品热量 / 每日热量目标
+ * - 已达到的部分按进度着色，未达到的部分为灰色底环；超出目标按 100% 显示
  * - 点击某天回调 onSelectDate，未来日期不可点击
  */
 @Composable
@@ -68,9 +70,9 @@ fun RingCalendar(
     canGoNext: Boolean,
     onSelectDate: (String) -> Unit,
     modifier: Modifier = Modifier,
-    cellHeight: Dp = 46.dp,
-    ringDiameter: Dp = 13.dp,
-    ringStroke: Dp = 2.2.dp
+    cellHeight: Dp = 44.dp,
+    ringStroke: Dp = 2.dp,
+    ringGap: Dp = 4.dp
 ) {
     val cells = buildList<LocalDate?> {
         val leading = month.atDay(1).dayOfWeek.value - 1   // 周一为第一列
@@ -121,11 +123,14 @@ fun RingCalendar(
 
         Spacer(Modifier.height(2.dp))
 
-        // 日期网格
+        // 日期网格：每个格内是「日期 + 同心双环」
         cells.chunked(7).forEach { week ->
             Row(Modifier.fillMaxWidth()) {
                 week.forEach { date ->
-                    Box(Modifier.weight(1f).height(cellHeight).padding(1.dp)) {
+                    Box(
+                        Modifier.weight(1f).height(cellHeight).padding(1.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         if (date != null) {
                             val key = DateUtils.dateOf(date)
                             val isFuture = today.isNotBlank() && key > today
@@ -142,8 +147,8 @@ fun RingCalendar(
                                 isSelected = key == selectedDate,
                                 isToday = key == today,
                                 isFuture = isFuture,
-                                ringDiameter = ringDiameter,
                                 ringStroke = ringStroke,
+                                ringGap = ringGap,
                                 onClick = { onSelectDate(key) }
                             )
                         }
@@ -160,8 +165,8 @@ fun RingCalendar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            LegendItem(WaterRingColor, "饮水")
-            LegendItem(CalorieRingColor, "热量")
+            LegendItem(CalorieRingColor, "热量（外环）")
+            LegendItem(WaterRingColor, "饮水（内环）")
             Spacer(Modifier.weight(1f))
             Text(
                 "点击日期查看当日记录",
@@ -180,85 +185,100 @@ private fun DayCell(
     isSelected: Boolean,
     isToday: Boolean,
     isFuture: Boolean,
-    ringDiameter: Dp,
     ringStroke: Dp,
+    ringGap: Dp,
     onClick: () -> Unit
 ) {
-    val container = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-    val border = if (isToday) {
-        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
-    } else null
+    val scheme = MaterialTheme.colorScheme
     val dayColor = when {
-        isFuture -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-        isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.onSurface
+        isFuture -> scheme.onSurfaceVariant.copy(alpha = 0.35f)
+        isSelected -> scheme.onPrimaryContainer
+        else -> scheme.onSurface
     }
+    val trackColor = if (isFuture) scheme.surfaceVariant.copy(alpha = 0.5f) else scheme.surfaceVariant
 
-    Surface(
-        onClick = onClick,
-        enabled = !isFuture,
-        shape = RoundedCornerShape(10.dp),
-        color = container,
-        border = border,
-        modifier = Modifier.fillMaxSize()
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clip(CircleShape)
+            .background(if (isSelected) scheme.primaryContainer else Color.Transparent)
+            .clickable(enabled = !isFuture, onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Column(
-            Modifier.fillMaxSize().padding(vertical = 3.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                day.toString(),
-                fontSize = 11.sp,
-                lineHeight = 13.sp,
-                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
-                color = dayColor
+        Canvas(Modifier.fillMaxSize()) {
+            val strokePx = ringStroke.toPx()
+            // 环半径随格子自适应，小屏也不会溢出
+            val outerRadius = size.minDimension / 2f - strokePx / 2f - 2.5.dp.toPx()
+            val innerRadius = outerRadius - ringGap.toPx() - strokePx
+
+            // 内环：饮水
+            drawProgressRing(
+                radius = innerRadius,
+                progress = waterProgress,
+                color = WaterRingColor,
+                trackColor = trackColor,
+                strokePx = strokePx,
+                dim = isFuture
             )
-            Spacer(Modifier.height(3.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                MiniRing(waterProgress, WaterRingColor, ringDiameter, ringStroke, dim = isFuture)
-                MiniRing(calorieProgress, CalorieRingColor, ringDiameter, ringStroke, dim = isFuture)
+            // 外环：热量
+            drawProgressRing(
+                radius = outerRadius,
+                progress = calorieProgress,
+                color = CalorieRingColor,
+                trackColor = trackColor,
+                strokePx = strokePx,
+                dim = isFuture
+            )
+            // 今天：在最外侧加一圈细描边
+            if (isToday) {
+                drawCircle(
+                    color = scheme.primary.copy(alpha = 0.55f),
+                    radius = outerRadius + strokePx / 2f + 1.dp.toPx(),
+                    style = Stroke(width = 1.dp.toPx())
+                )
             }
         }
+        Text(
+            day.toString(),
+            fontSize = 11.sp,
+            lineHeight = 12.sp,
+            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+            color = dayColor
+        )
     }
 }
 
-/** 极简进度环：底环灰色，填充部分按进度从 12 点方向顺时针 */
-@Composable
-private fun MiniRing(
+/** 从 12 点方向顺时针绘制进度环，底环始终为灰色 */
+private fun DrawScope.drawProgressRing(
+    radius: Float,
     progress: Float,
     color: Color,
-    diameter: Dp,
-    stroke: Dp,
-    dim: Boolean = false
+    trackColor: Color,
+    strokePx: Float,
+    dim: Boolean
 ) {
-    val trackColor = MaterialTheme.colorScheme.surfaceVariant
-    Canvas(Modifier.size(diameter)) {
-        val strokePx = stroke.toPx()
-        val d = this.size.minDimension - strokePx
-        val topLeft = Offset((this.size.width - d) / 2f, (this.size.height - d) / 2f)
-        val arcSize = Size(d, d)
+    val topLeft = center - Offset(radius, radius)
+    val arcSize = Size(radius * 2f, radius * 2f)
+    drawArc(
+        color = trackColor,
+        startAngle = 0f,
+        sweepAngle = 360f,
+        useCenter = false,
+        topLeft = topLeft,
+        size = arcSize,
+        style = Stroke(width = strokePx, cap = StrokeCap.Round)
+    )
+    val p = progress.coerceIn(0f, 1f)
+    if (p > 0f) {
         drawArc(
-            color = if (dim) trackColor.copy(alpha = 0.5f) else trackColor,
-            startAngle = 0f,
-            sweepAngle = 360f,
+            color = if (dim) color.copy(alpha = 0.35f) else color,
+            startAngle = -90f,
+            sweepAngle = 360f * p,
             useCenter = false,
             topLeft = topLeft,
             size = arcSize,
             style = Stroke(width = strokePx, cap = StrokeCap.Round)
         )
-        val p = progress.coerceIn(0f, 1f)
-        if (p > 0f) {
-            drawArc(
-                color = if (dim) color.copy(alpha = 0.35f) else color,
-                startAngle = -90f,
-                sweepAngle = 360f * p,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = strokePx, cap = StrokeCap.Round)
-            )
-        }
     }
 }
 

@@ -44,11 +44,29 @@ data class ApiError(
 /** 结构化解析：单餐分析 */
 @Serializable
 data class MealAnalysisJson(
+    val title: String = "",
     val caloriesKcal: Int = 0,
     val proteinG: Float = 0f,
     val carbG: Float = 0f,
     val fatG: Float = 0f,
+    /** 本次食用份量说明，如「1 包 50g」 */
+    val basis: String = "",
+    /** 每 100g 对照值（包装食品） */
+    val per100g: Per100gJson? = null,
+    /** 数据来源（品牌官网营养标签、食品数据库等） */
+    val source: String = "",
+    /** searched / estimated / missing */
+    val dataQuality: String = "",
     val summary: String = ""
+)
+
+/** 每 100g 营养对照 */
+@Serializable
+data class Per100gJson(
+    val caloriesKcal: Int = 0,
+    val proteinG: Float = 0f,
+    val carbG: Float = 0f,
+    val fatG: Float = 0f
 )
 
 /** 结构化解析：食物推荐 */

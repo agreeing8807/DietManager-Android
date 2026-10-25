@@ -94,18 +94,28 @@ class MealViewModel @Inject constructor(
         selectedDate.value = ""
     }
 
-    /** 添加一餐：餐次由 UI 按系统时间自动判断并允许用户修改 */
-    fun addMeal(type: MealType, description: String, imageBytes: ByteArray?) {
-        if (description.isBlank() && imageBytes == null) return
+    /**
+     * 添加一餐：餐次由 UI 按系统时间自动判断并允许用户修改。
+     * 记录日期固定为“今天”（按每日开始时间换算），与日历中正在查看的历史日期无关，
+     * 从根上避免把记录写入往日或产生跨日重复。
+     *
+     * @return 是否受理本次提交（被拒绝时调用方不要清空输入框）
+     */
+    fun addMeal(type: MealType, description: String, imageBytes: ByteArray?): Boolean {
+        if (description.isBlank() && imageBytes == null) return false
+        // 防重复提交：分析过程中不再受理
+        if (_uiState.value.analyzing) return false
         viewModelScope.launch {
             _uiState.update { it.copy(analyzing = true, message = null) }
-            val date = dayState.value.date.ifBlank { DateUtils.today() }
+            val date = DateUtils.today(dayState.value.profile.dayStartHour)
             val result = analysisRepository.analyzeMeal(description, imageBytes)
             val analysis: MealAnalysis? = result.getOrNull()
             val record = MealRecord(
                 date = date,
                 type = type,
-                description = description.ifBlank { "图片餐食" },
+                // 标题统一由模型综合图片与文字得出；分析失败时才回退到用户原文
+                description = analysis?.title?.takeIf { it.isNotBlank() }
+                    ?: description.ifBlank { "未识别餐食" },
                 caloriesKcal = analysis?.caloriesKcal ?: 0,
                 proteinG = analysis?.proteinG ?: 0f,
                 carbG = analysis?.carbG ?: 0f,
@@ -128,6 +138,7 @@ class MealViewModel @Inject constructor(
                 )
             }
         }
+        return true
     }
 
     fun updateMeal(record: MealRecord, type: MealType, description: String, calories: Int) {

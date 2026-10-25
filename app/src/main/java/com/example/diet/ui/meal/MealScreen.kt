@@ -155,8 +155,19 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
             }
         }
 
-        // ---------------- 添加 ----------------
+        // ---------------- 添加（仅当天可写） ----------------
         item {
+            if (!day.isToday) {
+                SectionCard {
+                    Text("往日记录仅可查看、修改或删除", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "新增用餐只能记录到今天：请点上方「回到今天」或日期右侧箭头切回今天再添加。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
             SectionCard {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("记录一餐", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -218,12 +229,16 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
                     Spacer(Modifier.weight(1f))
                     FilledIconButton(
                         onClick = {
-                            viewModel.addMeal(selectedType, description, captured)
-                            description = ""
-                            captured = null
-                            preview = null
+                            // 只有 VM 受理后才清空输入，避免重复点击/被拒时丢失内容
+                            val accepted = viewModel.addMeal(selectedType, description, captured)
+                            if (accepted) {
+                                description = ""
+                                captured = null
+                                preview = null
+                            }
                         },
-                        enabled = !state.analyzing && (description.isNotBlank() || captured != null)
+                        enabled = day.isToday && !state.analyzing &&
+                            (description.isNotBlank() || captured != null)
                     ) {
                         if (state.analyzing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         else Icon(Icons.Filled.Add, contentDescription = "添加")
@@ -240,6 +255,7 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
                     Spacer(Modifier.height(6.dp))
                     Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 }
+            }
             }
         }
 
@@ -336,10 +352,17 @@ private fun MealTimelineRow(meal: MealRecord, onEdit: () -> Unit, onDelete: () -
             }
             Column(Modifier.weight(1f)) {
                 Text(meal.description, style = MaterialTheme.typography.titleMedium)
+                val missingData = meal.summary.startsWith("⚠")
+                val statusText = when {
+                    missingData && meal.analyzedByAi -> "营养数据缺失 · AI 未查到可靠来源"
+                    missingData -> "营养数据缺失"
+                    meal.analyzedByAi -> "${meal.caloriesKcal} kcal · AI 分析"
+                    else -> "${meal.caloriesKcal} kcal · 手动"
+                }
                 Text(
-                    "${meal.caloriesKcal} kcal" + if (meal.analyzedByAi) " · AI 分析" else " · 手动",
+                    statusText,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
+                    color = if (missingData) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                 )
                 if (meal.summary.isNotBlank()) {
                     Text(
