@@ -25,5 +25,7 @@ data class UserProfile(
     val dailyCalorieGoal: Int = 1800,
     /** 每日饮水目标（ml） */
     val waterGoalMl: Int = 2000,
+    /** 每日开始时间（0~12 点），此时间之前记录的数据归属前一天，默认凌晨 4 点 */
+    val dayStartHour: Int = 4,
     val updatedAt: Long = System.currentTimeMillis()
 )

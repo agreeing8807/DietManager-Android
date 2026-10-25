@@ -10,6 +10,7 @@ import com.example.diet.data.remote.LLMManager
 import com.example.diet.data.remote.provider.OpenAiProvider
 import com.example.diet.data.remote.provider.VendorConfig
 import com.example.diet.data.repository.ProfileRepository
+import com.example.diet.domain.NutritionCalculator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -78,6 +79,21 @@ class SettingsViewModel @Inject constructor(
             profileRepository.saveProfile(_uiState.value.profile)
             _uiState.update { it.copy(message = "个人资料已保存") }
         }
+    }
+
+    /** 按当前体重/活动量重新推算每日热量目标并保存 */
+    fun recalcCalorieGoal() {
+        _uiState.update { s ->
+            val p = s.profile
+            s.copy(
+                profile = p.copy(
+                    dailyCalorieGoal = NutritionCalculator.dailyCalorieGoal(
+                        p.gender, p.currentWeightKg, p.heightCm, p.age, p.activity, p.targetWeightKg
+                    )
+                )
+            )
+        }
+        saveProfile()
     }
 
     // ---------------- API 管理 ----------------

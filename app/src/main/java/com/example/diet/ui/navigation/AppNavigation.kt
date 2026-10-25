@@ -3,8 +3,8 @@ package com.example.diet.ui.navigation
 import android.content.Context
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -25,21 +25,25 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.example.diet.ui.analysis.AnalysisScreen
 import com.example.diet.ui.dashboard.DashboardScreen
 import com.example.diet.ui.meal.MealScreen
 import com.example.diet.ui.onboarding.OnboardingScreen
 import com.example.diet.ui.settings.ApiListScreen
+import com.example.diet.ui.settings.DataSettingsScreen
+import com.example.diet.ui.settings.LlmSettingsScreen
+import com.example.diet.ui.settings.ProfileSettingsScreen
 import com.example.diet.ui.settings.SettingsScreen
 import com.example.diet.ui.water.ReminderScreen
 import com.example.diet.ui.water.WaterScreen
 
 object Routes {
     const val DASHBOARD = "dashboard"
-    const val MEAL = "meal"
     const val WATER = "water"
-    const val ANALYSIS = "analysis"
+    const val MEAL = "meal"
     const val SETTINGS = "settings"
+    const val SETTINGS_PROFILE = "settings/profile"
+    const val SETTINGS_LLM = "settings/llm"
+    const val SETTINGS_DATA = "settings/data"
     const val REMINDER = "reminder"
     const val ONBOARDING = "onboarding"
     const val API_LIST = "api_list"
@@ -49,8 +53,8 @@ data class BottomNavItem(val route: String, val label: String, val icon: ImageVe
 
 val bottomNavItems = listOf(
     BottomNavItem(Routes.DASHBOARD, "首页", Icons.Filled.Home),
-    BottomNavItem(Routes.MEAL, "记录", Icons.Filled.Restaurant),
-    BottomNavItem(Routes.ANALYSIS, "分析", Icons.Filled.Analytics),
+    BottomNavItem(Routes.WATER, "喝水", Icons.Filled.LocalDrink),
+    BottomNavItem(Routes.MEAL, "吃饭", Icons.Filled.Restaurant),
     BottomNavItem(Routes.SETTINGS, "设置", Icons.Filled.Settings)
 )
 
@@ -97,11 +101,13 @@ fun DietNavGraph() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Routes.ONBOARDING) { OnboardingScreen(navController) }
-            composable(Routes.DASHBOARD) { DashboardScreen(navController) }
-            composable(Routes.MEAL) { MealScreen() }
+            composable(Routes.DASHBOARD) { DashboardScreen() }
             composable(Routes.WATER) { WaterScreen(navController) }
-            composable(Routes.ANALYSIS) { AnalysisScreen() }
+            composable(Routes.MEAL) { MealScreen() }
             composable(Routes.SETTINGS) { SettingsScreen(navController) }
+            composable(Routes.SETTINGS_PROFILE) { ProfileSettingsScreen(navController) }
+            composable(Routes.SETTINGS_LLM) { LlmSettingsScreen(navController) }
+            composable(Routes.SETTINGS_DATA) { DataSettingsScreen(navController) }
             composable(Routes.API_LIST) { ApiListScreen(navController) }
             composable(Routes.REMINDER) { ReminderScreen(navController) }
         }

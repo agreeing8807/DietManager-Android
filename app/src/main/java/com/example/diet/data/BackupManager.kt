@@ -1,12 +1,16 @@
 package com.example.diet.data
 
 import android.content.Context
+import com.example.diet.data.local.dao.DrinkPresetDao
 import com.example.diet.data.local.dao.MealDao
+import com.example.diet.data.local.dao.QuickItemDao
 import com.example.diet.data.local.dao.ReminderDao
 import com.example.diet.data.local.dao.UserProfileDao
 import com.example.diet.data.local.dao.WaterDao
 import com.example.diet.data.local.dao.WeightDao
+import com.example.diet.data.local.entity.DrinkPreset
 import com.example.diet.data.local.entity.MealRecord
+import com.example.diet.data.local.entity.QuickItem
 import com.example.diet.data.local.entity.ReminderSetting
 import com.example.diet.data.local.entity.UserProfile
 import com.example.diet.data.local.entity.WaterRecord
@@ -29,6 +33,8 @@ data class BackupData(
     val meals: List<MealRecord>,
     val waters: List<WaterRecord>,
     val reminders: List<ReminderSetting>,
+    val quickItems: List<QuickItem> = emptyList(),
+    val drinkPresets: List<DrinkPreset> = emptyList(),
     val exportedAt: Long
 )
 
@@ -42,6 +48,8 @@ class BackupManager @Inject constructor(
     private val mealDao: MealDao,
     private val waterDao: WaterDao,
     private val reminderDao: ReminderDao,
+    private val quickItemDao: QuickItemDao,
+    private val drinkPresetDao: DrinkPresetDao,
     @ApplicationContext context: Context
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
@@ -55,6 +63,8 @@ class BackupManager @Inject constructor(
             meals = mealDao.getAll(),
             waters = waterDao.getAll(),
             reminders = reminderDao.getAll(),
+            quickItems = quickItemDao.getAll(),
+            drinkPresets = drinkPresetDao.getAll(),
             exportedAt = System.currentTimeMillis()
         )
         val name = "diet_backup_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date()) + ".json"
@@ -75,6 +85,8 @@ class BackupManager @Inject constructor(
             mealDao.clear(); data.meals.forEach { mealDao.insert(it.copy(id = 0)) }
             waterDao.clear(); data.waters.forEach { waterDao.insert(it.copy(id = 0)) }
             reminderDao.clear(); data.reminders.forEach { reminderDao.insert(it.copy(id = 0)) }
+            quickItemDao.clear(); data.quickItems.forEach { quickItemDao.insert(it.copy(id = 0)) }
+            drinkPresetDao.clear(); data.drinkPresets.forEach { drinkPresetDao.insert(it.copy(id = 0)) }
             file.name
         }
     }

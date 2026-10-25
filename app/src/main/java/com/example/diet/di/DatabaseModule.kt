@@ -5,7 +5,9 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.diet.data.local.AppDatabase
+import com.example.diet.data.local.dao.DrinkPresetDao
 import com.example.diet.data.local.dao.MealDao
+import com.example.diet.data.local.dao.QuickItemDao
 import com.example.diet.data.local.dao.ReminderDao
 import com.example.diet.data.local.dao.UserProfileDao
 import com.example.diet.data.local.dao.WaterDao
@@ -27,11 +29,48 @@ object DatabaseModule {
         }
     }
 
+    /** v3：新增快捷吃喝项、饮品配方；饮水记录补充水分/营养；资料补充每日开始时间 */
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `quick_item` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`name` TEXT NOT NULL, " +
+                    "`caloriesKcal` INTEGER NOT NULL, " +
+                    "`waterMl` INTEGER NOT NULL, " +
+                    "`proteinG` REAL NOT NULL, " +
+                    "`carbG` REAL NOT NULL, " +
+                    "`fatG` REAL NOT NULL, " +
+                    "`sortOrder` INTEGER NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `drink_preset` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`name` TEXT NOT NULL, " +
+                    "`builtIn` INTEGER NOT NULL, " +
+                    "`waterRatio` REAL NOT NULL, " +
+                    "`caloriesPer100ml` REAL NOT NULL, " +
+                    "`proteinPer100ml` REAL NOT NULL, " +
+                    "`carbPer100ml` REAL NOT NULL, " +
+                    "`fatPer100ml` REAL NOT NULL, " +
+                    "`sortOrder` INTEGER NOT NULL)"
+            )
+            db.execSQL("ALTER TABLE water_record ADD COLUMN waterMl INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE water_record ADD COLUMN drinkName TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE water_record ADD COLUMN proteinG REAL NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE water_record ADD COLUMN carbG REAL NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE water_record ADD COLUMN fatG REAL NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE water_record SET waterMl = volumeMl")
+            db.execSQL("ALTER TABLE user_profile ADD COLUMN dayStartHour INTEGER NOT NULL DEFAULT 4")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "diet_manager.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
 
@@ -44,4 +83,8 @@ object DatabaseModule {
     @Provides fun provideWaterDao(db: AppDatabase): WaterDao = db.waterDao()
 
     @Provides fun provideReminderDao(db: AppDatabase): ReminderDao = db.reminderDao()
+
+    @Provides fun provideQuickItemDao(db: AppDatabase): QuickItemDao = db.quickItemDao()
+
+    @Provides fun provideDrinkPresetDao(db: AppDatabase): DrinkPresetDao = db.drinkPresetDao()
 }

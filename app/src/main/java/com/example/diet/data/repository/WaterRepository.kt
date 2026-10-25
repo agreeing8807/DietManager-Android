@@ -17,10 +17,13 @@ class WaterRepository @Inject constructor(
 
     fun observeCaloriesByDate(date: String): Flow<Int> = dao.observeCaloriesByDate(date)
 
-    fun observeDailyVolumesBetween(start: String, end: String): Flow<List<DailyVolume>> =
-        dao.observeDailyVolumesBetween(start, end)
+    /** 区间内按天汇总的饮水量（含往日，用于只读展示每天总量） */
+    fun observeDailyTotalsBetween(start: String, end: String): Flow<List<DailyVolume>> =
+        dao.observeDailyTotalsBetween(start, end)
 
     suspend fun addWater(record: WaterRecord): Long = dao.insert(record)
+
+    suspend fun updateWater(record: WaterRecord) = dao.update(record)
 
     suspend fun deleteWater(record: WaterRecord) = dao.delete(record)
 }

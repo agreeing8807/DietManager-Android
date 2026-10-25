@@ -27,10 +27,20 @@ enum class MealType(val label: String) {
     BREAKFAST("早餐"),
     LUNCH("午餐"),
     DINNER("晚餐"),
-    SNACK("加餐")
+    SNACK("加餐");
+
+    companion object {
+        /** 按系统时间自动判断餐次 */
+        fun fromHour(hour: Int): MealType = when (hour) {
+            in 5..9 -> BREAKFAST
+            in 10..14 -> LUNCH
+            in 15..20 -> DINNER
+            else -> SNACK
+        }
+    }
 }
 
-/** 饮品类型 */
+/** 饮品类型（旧数据兼容用；新记录的实际水种名见 WaterRecord.drinkName） */
 @Serializable
 enum class DrinkType(
     val label: String,
