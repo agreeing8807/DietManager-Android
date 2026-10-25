@@ -8,6 +8,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -69,7 +71,7 @@ import java.io.ByteArrayOutputStream
 import java.time.LocalTime
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
     val day by viewModel.dayState.collectAsStateWithLifecycle()
@@ -176,7 +178,11 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     MealType.values().forEach { type ->
                         Chip(
                             text = type.label,
@@ -217,11 +223,18 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
                             captured = null
                             preview = null
                         },
-                        enabled = !state.analyzing
+                        enabled = !state.analyzing && (description.isNotBlank() || captured != null)
                     ) {
                         if (state.analyzing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         else Icon(Icons.Filled.Add, contentDescription = "添加")
                     }
+                }
+                if (preview != null && description.isBlank()) {
+                    Text(
+                        "只拍照也可以：会用支持视觉的模型按图片估算营养",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 state.message?.let {
                     Spacer(Modifier.height(6.dp))
@@ -351,6 +364,7 @@ private fun MealTimelineRow(meal: MealRecord, onEdit: () -> Unit, onDelete: () -
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EditMealDialog(
     meal: MealRecord,
@@ -370,7 +384,11 @@ private fun EditMealDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("餐次", style = MaterialTheme.typography.labelMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     MealType.values().forEach { t ->
                         Chip(t.label, t == type, onClick = { type = t })
                     }

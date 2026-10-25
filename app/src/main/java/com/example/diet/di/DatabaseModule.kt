@@ -66,11 +66,18 @@ object DatabaseModule {
         }
     }
 
+    /** v4：加餐拆分为早/午/晚加餐，旧的 SNACK 归到晚加餐 */
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("UPDATE meal_record SET type = 'EVENING_SNACK' WHERE type = 'SNACK'")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "diet_manager.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .fallbackToDestructiveMigration()
             .build()
 

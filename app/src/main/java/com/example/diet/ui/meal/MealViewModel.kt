@@ -116,10 +116,15 @@ class MealViewModel @Inject constructor(
                 analyzedByAi = analysis != null
             )
             mealRepository.addMeal(record)
+            val failure = result.exceptionOrNull()?.message
             _uiState.update {
                 it.copy(
                     analyzing = false,
-                    message = if (analysis != null) "分析完成" else "已保存（离线/未配置分析）"
+                    message = when {
+                        analysis != null -> "分析完成"
+                        failure != null -> "已保存，但未完成分析：$failure"
+                        else -> "已保存"
+                    }
                 )
             }
         }

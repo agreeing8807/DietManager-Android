@@ -46,6 +46,18 @@ class OpenAiProvider(
         if (apiKey.isBlank()) return Result.failure(
             IllegalStateException("未配置 ${config.name} 的 API Key")
         )
+        val imageIgnored = req.imageBytes != null && !config.supportsVision
+        if (imageIgnored && req.description.isBlank()) {
+            return Result.failure(
+                IllegalStateException(
+                    "当前模型（${config.name} / ${model.ifBlank { config.defaultModel }}）不支持图片识别，" +
+                        "请改用通义千问 qwen-vl-plus、智谱 glm-4v 等视觉模型，或补充文字描述"
+                )
+            )
+        }
+        if (req.imageBytes == null && req.description.isBlank()) {
+            return Result.failure(IllegalStateException("请描述这餐吃了什么，或使用拍照识别"))
+        }
         val userContent = buildUserContent(req)
         val request = ChatCompletionRequest(
             model = model.ifBlank { config.defaultModel },
@@ -58,15 +70,18 @@ class OpenAiProvider(
         )
         return runCatching {
             val resp = service.chat("${config.authPrefix} $apiKey", request)
-            val raw = resp.choices.firstOrNull()?.message?.content
-                ?: throw IllegalStateException("模型未返回内容")
+            resp.error?.let { throw IllegalStateException(it.message.ifBlank { "接口返回错误" }) }
+            val raw = resp.choices.firstOrNull()?.message?.content?.takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("模型未返回内容（请确认所选模型支持图片识别，或改用文字描述）")
             val parsed = json.decodeFromString<MealAnalysisJson>(stripFences(raw))
             MealAnalysis(
                 caloriesKcal = parsed.caloriesKcal,
                 proteinG = parsed.proteinG,
                 carbG = parsed.carbG,
                 fatG = parsed.fatG,
-                summary = parsed.summary
+                summary = if (imageIgnored) {
+                    "${parsed.summary}（当前模型不支持图片，已按文字描述估算）"
+                } else parsed.summary
             )
         }
     }
@@ -90,7 +105,8 @@ class OpenAiProvider(
         )
         return runCatching {
             val resp = service.chat("${config.authPrefix} $apiKey", request)
-            val raw = resp.choices.firstOrNull()?.message?.content
+            resp.error?.let { throw IllegalStateException(it.message.ifBlank { "接口返回错误" }) }
+            val raw = resp.choices.firstOrNull()?.message?.content?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("模型未返回内容")
             val parsed = json.decodeFromString<FoodSuggestionListJson>(stripFences(raw))
             parsed.items.map {
@@ -102,15 +118,22 @@ class OpenAiProvider(
     private fun buildUserContent(req: MealAnalysisRequest): JsonElement {
         return if (req.imageBytes != null && config.supportsVision) {
             val b64 = Base64.getEncoder().encodeToString(req.imageBytes)
+            val imageUrl = if (config.imageDataUri) "data:image/jpeg;base64,$b64" else b64
             buildJsonArray {
                 add(buildJsonObject {
                     put("type", JsonPrimitive("text"))
                     put(
                         "text",
                         JsonPrimitive(
-                            "请分析这餐食物的营养。${
-                                if (req.description.isNotBlank()) "补充说明：${req.description}" else ""
-                            }${if (req.userContext.isNotBlank()) "\n用户目标：${req.userContext}" else ""}"
+                            buildString {
+                                append("请根据这张照片估算这餐食物的热量与营养成分，按常见分量合理估算。")
+                                if (req.description.isNotBlank()) {
+                                    append("补充说明：${req.description}")
+                                } else {
+                                    append("用户未填写文字描述，照片即全部信息，请直接按图片判断。")
+                                }
+                                if (req.userContext.isNotBlank()) append("\n用户目标：${req.userContext}")
+                            }
                         )
                     )
                 })
@@ -118,9 +141,7 @@ class OpenAiProvider(
                     put("type", JsonPrimitive("image_url"))
                     put(
                         "image_url",
-                        buildJsonObject {
-                            put("url", JsonPrimitive("data:image/jpeg;base64,$b64"))
-                        }
+                        buildJsonObject { put("url", JsonPrimitive(imageUrl)) }
                     )
                 })
             }
@@ -128,7 +149,7 @@ class OpenAiProvider(
             JsonPrimitive(
                 buildString {
                     append("请分析以下餐食：")
-                    append(req.description)
+                    append(req.description.ifBlank { "（用户未填写文字描述，请按常见分量合理估算）" })
                     if (req.userContext.isNotBlank()) append("\n用户目标：${req.userContext}")
                 }
             )

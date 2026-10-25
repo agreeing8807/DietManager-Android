@@ -34,7 +34,9 @@ class LLMManager @Inject constructor(
         VendorConfig(
             id = "zhipu", name = "智谱 GLM",
             baseUrl = "https://open.bigmodel.cn/api/paas/v4",
-            defaultModel = "glm-4v", supportsVision = true
+            defaultModel = "glm-4v", supportsVision = true,
+            // 智谱的 image_url 只接受纯 base64，不接受 data URI 前缀
+            imageDataUri = false
         ),
         VendorConfig(
             id = "deepseek", name = "DeepSeek",

@@ -1,6 +1,11 @@
 package com.example.diet.domain.model
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 
 /** 性别 */
 @Serializable
@@ -21,23 +26,45 @@ enum class ActivityLevel(
     VERY_ACTIVE("极高（体力工作/每日训练）", 1.9f)
 }
 
-/** 餐次 */
-@Serializable
+/** 餐次（含三个加餐时段） */
+@Serializable(with = MealTypeSerializer::class)
 enum class MealType(val label: String) {
     BREAKFAST("早餐"),
+    MORNING_SNACK("早加餐"),
     LUNCH("午餐"),
+    AFTERNOON_SNACK("午加餐"),
     DINNER("晚餐"),
-    SNACK("加餐");
+    EVENING_SNACK("晚加餐");
 
     companion object {
         /** 按系统时间自动判断餐次 */
         fun fromHour(hour: Int): MealType = when (hour) {
-            in 5..9 -> BREAKFAST
-            in 10..14 -> LUNCH
-            in 15..20 -> DINNER
-            else -> SNACK
+            in 5..8 -> BREAKFAST
+            in 9..10 -> MORNING_SNACK
+            in 11..13 -> LUNCH
+            in 14..15 -> AFTERNOON_SNACK
+            in 16..19 -> DINNER
+            else -> EVENING_SNACK
+        }
+
+        /** 兼容历史数据中的旧枚举名 */
+        fun fromNameOrDefault(raw: String?): MealType = when (raw) {
+            null -> EVENING_SNACK
+            "SNACK" -> EVENING_SNACK
+            else -> values().firstOrNull { it.name == raw } ?: BREAKFAST
         }
     }
+}
+
+/** 旧备份里的 "SNACK" 也能正常反序列化 */
+object MealTypeSerializer : KSerializer<MealType> {
+    override val descriptor = PrimitiveSerialDescriptor("MealType", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: MealType) {
+        encoder.encodeString(value.name)
+    }
+
+    override fun deserialize(decoder: Decoder): MealType = MealType.fromNameOrDefault(decoder.decodeString())
 }
 
 /** 饮品类型（旧数据兼容用；新记录的实际水种名见 WaterRecord.drinkName） */

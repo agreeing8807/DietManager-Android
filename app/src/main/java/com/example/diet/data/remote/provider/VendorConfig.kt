@@ -10,5 +10,7 @@ data class VendorConfig(
     val baseUrl: String,
     val defaultModel: String,
     val supportsVision: Boolean = false,
-    val authPrefix: String = "Bearer"
+    val authPrefix: String = "Bearer",
+    /** 图片是否使用 data:image/jpeg;base64,xxx 形式（智谱等厂商只接受纯 base64） */
+    val imageDataUri: Boolean = true
 )

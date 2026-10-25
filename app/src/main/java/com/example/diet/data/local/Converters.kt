@@ -14,7 +14,9 @@ class Converters {
     @TypeConverter fun strToActivity(v: String) = enumValueOf<ActivityLevel>(v)
 
     @TypeConverter fun mealTypeToStr(v: MealType) = v.name
-    @TypeConverter fun strToMealType(v: String) = enumValueOf<MealType>(v)
+
+    /** 兼容旧版本写入的 SNACK */
+    @TypeConverter fun strToMealType(v: String) = MealType.fromNameOrDefault(v)
 
     @TypeConverter fun drinkTypeToStr(v: DrinkType) = v.name
     @TypeConverter fun strToDrinkType(v: String) = enumValueOf<DrinkType>(v)
