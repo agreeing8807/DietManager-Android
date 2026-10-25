@@ -34,11 +34,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,9 +61,31 @@ import java.util.Calendar
 @Composable
 fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewModel = hiltViewModel()) {
     val reminders by viewModel.reminders.collectAsStateWithLifecycle()
+    val calendarEnabled by viewModel.calendarEnabled.collectAsStateWithLifecycle()
+    val calendarMessage by viewModel.calendarMessage.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val allEnabled = reminders.isNotEmpty() && reminders.all { it.enabled }
     var exactPreferred by remember { mutableStateOf(ReminderScheduler.isExactAlarmPreferred(context)) }
+
+    val calendarPermissionGranted =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result[Manifest.permission.READ_CALENDAR] == true &&
+            result[Manifest.permission.WRITE_CALENDAR] == true
+        if (granted) viewModel.setCalendarSync(true) else viewModel.onCalendarPermissionDenied()
+    }
+
+    LaunchedEffect(calendarMessage) {
+        if (calendarMessage != null) {
+            delay(4000)
+            viewModel.clearCalendarMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -136,6 +162,45 @@ fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewMode
                         }
                         viewModel.reschedule()
                     }
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("同步到系统日历", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "开启后每个提醒时间会写入系统日历（每日重复），由日历负责通知；关闭即移除",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = calendarEnabled,
+                    onCheckedChange = { checked ->
+                        when {
+                            !checked -> viewModel.setCalendarSync(false)
+                            calendarPermissionGranted -> viewModel.setCalendarSync(true)
+                            else -> calendarPermissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.READ_CALENDAR,
+                                    Manifest.permission.WRITE_CALENDAR
+                                )
+                            )
+                        }
+                    }
+                )
+            }
+            if (calendarMessage != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    calendarMessage!!,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
             Spacer(Modifier.height(12.dp))

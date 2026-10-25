@@ -227,10 +227,10 @@ class WaterViewModel @Inject constructor(
                     name = name.trim(),
                     builtIn = false,
                     waterRatio = (waterRatioPercent.coerceIn(0, 100)) / 100f,
-                    caloriesPer100ml = caloriesPer100ml,
-                    proteinPer100ml = proteinPer100ml,
-                    carbPer100ml = carbPer100ml,
-                    fatPer100ml = fatPer100ml,
+                    caloriesPer100ml = caloriesPer100ml.coerceAtLeast(0f),
+                    proteinPer100ml = proteinPer100ml.coerceAtLeast(0f),
+                    carbPer100ml = carbPer100ml.coerceAtLeast(0f),
+                    fatPer100ml = fatPer100ml.coerceAtLeast(0f),
                     sortOrder = order
                 )
             )
@@ -260,6 +260,69 @@ class WaterViewModel @Inject constructor(
                     carbPerServing = carbPerServing.coerceAtLeast(0f),
                     fatPerServing = fatPerServing.coerceAtLeast(0f),
                     sortOrder = order
+                )
+            )
+        }
+    }
+
+    /** 修改水种：按液体型保存，允许从冲调型改过来 */
+    fun updateCustomPreset(
+        preset: DrinkPreset,
+        name: String,
+        waterRatioPercent: Int,
+        caloriesPer100ml: Float,
+        proteinPer100ml: Float,
+        carbPer100ml: Float,
+        fatPer100ml: Float
+    ) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            presetRepository.update(
+                preset.copy(
+                    name = name.trim(),
+                    kind = DrinkKind.LIQUID,
+                    waterRatio = (waterRatioPercent.coerceIn(0, 100)) / 100f,
+                    caloriesPer100ml = caloriesPer100ml.coerceAtLeast(0f),
+                    proteinPer100ml = proteinPer100ml.coerceAtLeast(0f),
+                    carbPer100ml = carbPer100ml.coerceAtLeast(0f),
+                    fatPer100ml = fatPer100ml.coerceAtLeast(0f),
+                    // 改成液体型后清掉冲调型字段，避免旧数据残留
+                    servingGrams = 0f,
+                    caloriesPerServing = 0f,
+                    proteinPerServing = 0f,
+                    carbPerServing = 0f,
+                    fatPerServing = 0f
+                )
+            )
+        }
+    }
+
+    /** 修改水种：按冲调型保存，允许从液体型改过来 */
+    fun updatePowderPreset(
+        preset: DrinkPreset,
+        name: String,
+        servingGrams: Float,
+        caloriesPerServing: Float,
+        proteinPerServing: Float,
+        carbPerServing: Float,
+        fatPerServing: Float
+    ) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            presetRepository.update(
+                preset.copy(
+                    name = name.trim(),
+                    kind = DrinkKind.POWDER,
+                    waterRatio = 1f,
+                    caloriesPer100ml = 0f,
+                    proteinPer100ml = 0f,
+                    carbPer100ml = 0f,
+                    fatPer100ml = 0f,
+                    servingGrams = servingGrams.coerceAtLeast(0f),
+                    caloriesPerServing = caloriesPerServing.coerceAtLeast(0f),
+                    proteinPerServing = proteinPerServing.coerceAtLeast(0f),
+                    carbPerServing = carbPerServing.coerceAtLeast(0f),
+                    fatPerServing = fatPerServing.coerceAtLeast(0f)
                 )
             )
         }

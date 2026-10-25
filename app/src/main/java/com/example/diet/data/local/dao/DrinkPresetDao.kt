@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import com.example.diet.data.local.entity.DrinkPreset
 import kotlinx.coroutines.flow.Flow
 
@@ -11,6 +12,9 @@ import kotlinx.coroutines.flow.Flow
 interface DrinkPresetDao {
     @Insert
     suspend fun insert(preset: DrinkPreset): Long
+
+    @Update
+    suspend fun update(preset: DrinkPreset)
 
     @Delete
     suspend fun delete(preset: DrinkPreset)

@@ -290,11 +290,19 @@ fun WaterScreen(navController: NavHostController, viewModel: WaterViewModel = hi
         CustomPresetDialog(
             customPresets = state.presets.filter { !it.builtIn },
             onDismiss = { showCustomDialog = false },
-            onAddLiquid = { name, ratio, kcal, protein, carb, fat ->
-                viewModel.addCustomPreset(name, ratio, kcal, protein, carb, fat)
+            onSaveLiquid = { existing, name, ratio, kcal, protein, carb, fat ->
+                if (existing == null) {
+                    viewModel.addCustomPreset(name, ratio, kcal, protein, carb, fat)
+                } else {
+                    viewModel.updateCustomPreset(existing, name, ratio, kcal, protein, carb, fat)
+                }
             },
-            onAddPowder = { name, grams, kcal, protein, carb, fat ->
-                viewModel.addPowderPreset(name, grams, kcal, protein, carb, fat)
+            onSavePowder = { existing, name, grams, kcal, protein, carb, fat ->
+                if (existing == null) {
+                    viewModel.addPowderPreset(name, grams, kcal, protein, carb, fat)
+                } else {
+                    viewModel.updatePowderPreset(existing, name, grams, kcal, protein, carb, fat)
+                }
             },
             onDelete = { viewModel.deletePreset(it) }
         )
@@ -643,10 +651,11 @@ private fun EditWaterDialog(
 private fun CustomPresetDialog(
     customPresets: List<DrinkPreset>,
     onDismiss: () -> Unit,
-    onAddLiquid: (String, Int, Float, Float, Float, Float) -> Unit,
-    onAddPowder: (String, Float, Float, Float, Float, Float) -> Unit,
+    onSaveLiquid: (DrinkPreset?, String, Int, Float, Float, Float, Float) -> Unit,
+    onSavePowder: (DrinkPreset?, String, Float, Float, Float, Float, Float) -> Unit,
     onDelete: (DrinkPreset) -> Unit
 ) {
+    var editing by remember { mutableStateOf<DrinkPreset?>(null) }
     var name by remember { mutableStateOf("") }
     var powder by remember { mutableStateOf(false) }
     var ratio by remember { mutableStateOf("100") }
@@ -656,9 +665,33 @@ private fun CustomPresetDialog(
     var fat by remember { mutableStateOf("") }
     var servingGrams by remember { mutableStateOf("") }
 
+    fun resetForm() {
+        editing = null
+        name = ""
+        ratio = "100"
+        kcal = ""
+        protein = ""
+        carb = ""
+        fat = ""
+        servingGrams = ""
+    }
+
+    fun loadForEdit(p: DrinkPreset) {
+        val isPowder = p.kind == DrinkKind.POWDER
+        editing = p
+        name = p.name
+        powder = isPowder
+        ratio = (p.waterRatio * 100).roundToInt().toString()
+        servingGrams = if (isPowder) numText(p.servingGrams) else ""
+        kcal = numText(if (isPowder) p.caloriesPerServing else p.caloriesPer100ml)
+        protein = numText(if (isPowder) p.proteinPerServing else p.proteinPer100ml)
+        carb = numText(if (isPowder) p.carbPerServing else p.carbPer100ml)
+        fat = numText(if (isPowder) p.fatPerServing else p.fatPer100ml)
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("自定义水种") },
+        title = { Text(if (editing != null) "编辑水种" else "自定义水种") },
         text = {
             Column(
                 Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
@@ -697,33 +730,47 @@ private fun CustomPresetDialog(
                     NumField("碳水 (g/100ml)", carb, decimal = true) { carb = it }
                     NumField("脂肪 (g/100ml)", fat, decimal = true) { fat = it }
                 }
-                Button(
-                    onClick = {
-                        if (powder) {
-                            onAddPowder(
-                                name,
-                                servingGrams.toFloatOrNull() ?: 0f,
-                                kcal.toFloatOrNull() ?: 0f,
-                                protein.toFloatOrNull() ?: 0f,
-                                carb.toFloatOrNull() ?: 0f,
-                                fat.toFloatOrNull() ?: 0f
-                            )
-                        } else {
-                            onAddLiquid(
-                                name,
-                                ratio.toIntOrNull() ?: 100,
-                                kcal.toFloatOrNull() ?: 0f,
-                                protein.toFloatOrNull() ?: 0f,
-                                carb.toFloatOrNull() ?: 0f,
-                                fat.toFloatOrNull() ?: 0f
-                            )
-                        }
-                        name = ""; ratio = "100"; kcal = ""; protein = ""; carb = ""
-                        fat = ""; servingGrams = ""
-                    },
-                    enabled = name.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(if (powder) "添加冲调水种" else "添加水种") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            if (powder) {
+                                onSavePowder(
+                                    editing,
+                                    name,
+                                    servingGrams.toFloatOrNull() ?: 0f,
+                                    kcal.toFloatOrNull() ?: 0f,
+                                    protein.toFloatOrNull() ?: 0f,
+                                    carb.toFloatOrNull() ?: 0f,
+                                    fat.toFloatOrNull() ?: 0f
+                                )
+                            } else {
+                                onSaveLiquid(
+                                    editing,
+                                    name,
+                                    ratio.toIntOrNull() ?: 100,
+                                    kcal.toFloatOrNull() ?: 0f,
+                                    protein.toFloatOrNull() ?: 0f,
+                                    carb.toFloatOrNull() ?: 0f,
+                                    fat.toFloatOrNull() ?: 0f
+                                )
+                            }
+                            resetForm()
+                        },
+                        enabled = name.isNotBlank(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            when {
+                                editing != null -> "保存修改"
+                                powder -> "添加冲调水种"
+                                else -> "添加水种"
+                            }
+                        )
+                    }
+                    if (editing != null) {
+                        TextButton(onClick = { resetForm() }) { Text("取消") }
+                    }
+                }
 
                 if (customPresets.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
@@ -742,6 +789,14 @@ private fun CustomPresetDialog(
                                     },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(onClick = { loadForEdit(p) }) {
+                                Icon(
+                                    Icons.Filled.Edit,
+                                    contentDescription = "编辑水种",
+                                    Modifier.size(18.dp),
+                                    tint = DrinkBlue
                                 )
                             }
                             IconButton(onClick = { onDelete(p) }) {
@@ -774,6 +829,11 @@ private fun NumField(label: String, value: String, decimal: Boolean, onValueChan
         modifier = Modifier.fillMaxWidth()
     )
 }
+
+/** 输入框回填用：整数不带小数点，小数保留一位 */
+private fun numText(value: Float): String =
+    if (value % 1f == 0f) value.roundToInt().toString()
+    else String.format(Locale.CHINA, "%.1f", value)
 
 /** 1 份显示为「1」，1.5 份显示为「1.5」 */
 private fun servingsLabel(value: Float): String =

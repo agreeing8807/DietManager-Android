@@ -21,5 +21,7 @@ class DrinkPresetRepository @Inject constructor(
 
     suspend fun add(preset: DrinkPreset): Long = dao.insert(preset)
 
+    suspend fun update(preset: DrinkPreset) = dao.update(preset)
+
     suspend fun delete(preset: DrinkPreset) = dao.delete(preset)
 }
