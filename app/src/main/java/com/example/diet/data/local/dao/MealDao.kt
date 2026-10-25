@@ -26,6 +26,13 @@ interface MealDao {
     @Query("SELECT COALESCE(SUM(caloriesKcal),0) FROM meal_record WHERE date = :date")
     fun observeCaloriesByDate(date: String): Flow<Int>
 
+    /** 区间内按天汇总的热量（无记录的日期不会返回，需调用方补齐） */
+    @Query(
+        "SELECT date AS date, COALESCE(SUM(caloriesKcal),0) AS caloriesKcal " +
+        "FROM meal_record WHERE date BETWEEN :start AND :end GROUP BY date"
+    )
+    fun observeDailyCaloriesBetween(start: String, end: String): Flow<List<DailyCalories>>
+
     @Query(
         "SELECT COALESCE(SUM(proteinG), 0) AS proteinG, " +
         "COALESCE(SUM(carbG), 0) AS carbG, " +
@@ -46,4 +53,10 @@ data class MealMacros(
     @ColumnInfo(name = "proteinG") val proteinG: Float,
     @ColumnInfo(name = "carbG") val carbG: Float,
     @ColumnInfo(name = "fatG") val fatG: Float
+)
+
+/** 单日热量汇总（日历用） */
+data class DailyCalories(
+    val date: String,
+    val caloriesKcal: Int
 )

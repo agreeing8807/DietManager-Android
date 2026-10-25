@@ -46,12 +46,12 @@ class OpenAiProvider(
         if (apiKey.isBlank()) return Result.failure(
             IllegalStateException("未配置 ${config.name} 的 API Key")
         )
-        val imageIgnored = req.imageBytes != null && !config.supportsVision
+        val imageIgnored = req.imageBytes != null && !config.supportsImage(model)
         if (imageIgnored && req.description.isBlank()) {
             return Result.failure(
                 IllegalStateException(
                     "当前模型（${config.name} / ${model.ifBlank { config.defaultModel }}）不支持图片识别，" +
-                        "请改用通义千问 qwen-vl-plus、智谱 glm-4v 等视觉模型，或补充文字描述"
+                        "请改用 deepseek-flash、通义千问 qwen-vl-plus、智谱 glm-4v 等视觉模型，或补充文字描述"
                 )
             )
         }
@@ -116,7 +116,7 @@ class OpenAiProvider(
     }
 
     private fun buildUserContent(req: MealAnalysisRequest): JsonElement {
-        return if (req.imageBytes != null && config.supportsVision) {
+        return if (req.imageBytes != null && config.supportsImage(model)) {
             val b64 = Base64.getEncoder().encodeToString(req.imageBytes)
             val imageUrl = if (config.imageDataUri) "data:image/jpeg;base64,$b64" else b64
             buildJsonArray {

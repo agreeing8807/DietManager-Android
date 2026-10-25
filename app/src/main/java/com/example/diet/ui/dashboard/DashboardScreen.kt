@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -44,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.diet.data.local.entity.QuickItem
 import com.example.diet.domain.NutritionCalculator
 import com.example.diet.ui.component.MacroBar
+import com.example.diet.ui.component.RingCalendar
 import com.example.diet.ui.component.SectionCard
 import com.example.diet.ui.component.WeightLineChart
 import com.example.diet.ui.component.oneDecimal
@@ -184,6 +188,58 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
                 }
             }
         }
+
+        // ---------------- 饮食日历 + 当日时间线 ----------------
+        item {
+            SectionCard {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("饮食日历", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    if (state.monthOffset != 0) {
+                        TextButton(onClick = { viewModel.resetMonth() }) { Text("回到本月") }
+                    }
+                }
+                RingCalendar(
+                    month = state.month,
+                    waterByDate = state.monthWater,
+                    caloriesByDate = state.monthCalories,
+                    waterGoal = waterGoal,
+                    calorieGoal = calorieGoal,
+                    selectedDate = state.selectedDate,
+                    today = state.date,
+                    onPrevMonth = { viewModel.shiftMonth(-1) },
+                    onNextMonth = { viewModel.shiftMonth(1) },
+                    canGoNext = state.monthOffset < 0,
+                    onSelectDate = { viewModel.selectDate(it) }
+                )
+
+                HorizontalDivider(Modifier.padding(vertical = 10.dp))
+
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${DateUtils.dayLabel(state.selectedDate)} 记录",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${state.selectedCalories} kcal · ${state.selectedWaterMl} ml",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                if (state.selectedEvents.isEmpty()) {
+                    Text(
+                        "这一天没有饮食或饮水记录",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    state.selectedEvents.forEach { event ->
+                        DayEventRow(event)
+                    }
+                }
+            }
+        }
     }
 
     if (showWeightDialog) {
@@ -216,6 +272,36 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
                 editingItem = null
             }
         )
+    }
+}
+
+@Composable
+private fun DayEventRow(event: DayEvent) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            event.timeLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(42.dp).padding(top = 2.dp)
+        )
+        Icon(
+            if (event.isDrink) Icons.Filled.LocalDrink else Icons.Filled.Restaurant,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = if (event.isDrink) WaterColor else CalorieColor
+        )
+        Spacer(Modifier.width(6.dp))
+        Column(Modifier.weight(1f)) {
+            Text(event.title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                event.detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

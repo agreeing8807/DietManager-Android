@@ -38,10 +38,13 @@ class LLMManager @Inject constructor(
             // 智谱的 image_url 只接受纯 base64，不接受 data URI 前缀
             imageDataUri = false
         ),
+        // 官方文档：deepseek-flash 支持图像理解（image_url 可用 data URI），deepseek-v4-pro 不支持
         VendorConfig(
             id = "deepseek", name = "DeepSeek",
             baseUrl = "https://api.deepseek.com/v1",
-            defaultModel = "deepseek-chat", supportsVision = false
+            defaultModel = "deepseek-flash", supportsVision = true,
+            imageDataUri = true,
+            visionModels = listOf("flash", "vision")
         )
     )
 
@@ -80,9 +83,22 @@ class LLMManager @Inject constructor(
             config = config,
             service = serviceFor(config),
             apiKey = entry.apiKey,
-            model = entry.model.ifBlank { config.defaultModel },
+            model = resolveModel(config, entry.model),
             apiKeyStore = apiKeyStore
         )
+    }
+
+    /**
+     * 兼容旧配置：deepseek-chat / deepseek-reasoner 已不在官方模型列表中，
+     * 统一回落到厂商默认模型（deepseek-flash），避免旧条目直接 404。
+     */
+    private fun resolveModel(config: VendorConfig, raw: String): String {
+        if (raw.isBlank()) return config.defaultModel
+        if (config.id == "deepseek") {
+            val legacy = setOf("deepseek-chat", "deepseek-reasoner")
+            if (raw.lowercase() in legacy) return config.defaultModel
+        }
+        return raw
     }
 
     /** 测试单条 API 连接 */
@@ -92,7 +108,7 @@ class LLMManager @Inject constructor(
         val resp = serviceFor(config).chat(
             "${config.authPrefix} ${entry.apiKey}",
             ChatCompletionRequest(
-                model = entry.model.ifBlank { config.defaultModel },
+                model = resolveModel(config, entry.model),
                 messages = listOf(ChatMessage("user", JsonPrimitive("ping"))),
                 temperature = 0.1
             )
