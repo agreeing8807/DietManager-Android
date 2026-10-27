@@ -132,6 +132,20 @@ fun LlmSettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3
                     )
+                    OutlinedTextField(
+                        value = state.promptLabel,
+                        onValueChange = { viewModel.setPromptLabel(it) },
+                        label = { Text("营养成分表识别 Prompt") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 4
+                    )
+                    OutlinedTextField(
+                        value = state.promptPortion,
+                        onValueChange = { viewModel.setPromptPortion(it) },
+                        label = { Text("份量估算 Prompt") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3
+                    )
                     Button(onClick = { viewModel.resetPrompts() }, modifier = Modifier.fillMaxWidth()) {
                         Text("恢复默认提示语")
                     }

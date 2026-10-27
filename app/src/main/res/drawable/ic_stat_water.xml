@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知栏小图标：必须为单色 alpha 图，系统会按主题着色。
+     造型取自应用图标的「杯中水」，简化为水滴以保证小尺寸下可辨认。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2.4c0,0 -6.4,7 -6.4,11.2a6.4,6.4 0 0,0 12.8,0C18.4,9.4 12,2.4 12,2.4z" />
+</vector>

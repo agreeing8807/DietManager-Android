@@ -7,6 +7,7 @@ import com.example.diet.data.local.entity.ReminderSetting
 import com.example.diet.data.repository.ReminderRepository
 import com.example.diet.util.CalendarReminderSync
 import com.example.diet.util.ReminderScheduler
+import com.example.diet.util.WaterReminderTexts
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,10 @@ class ReminderViewModel @Inject constructor(
     /** 日历同步结果提示（null 表示无提示） */
     private val _calendarMessage = MutableStateFlow<String?>(null)
     val calendarMessage: StateFlow<String?> = _calendarMessage.asStateFlow()
+
+    /** 喝水提示标语（内置 8 条，可自定义），通知与日历事件共用 */
+    private val _texts = MutableStateFlow(WaterReminderTexts.current(context))
+    val texts: StateFlow<List<String>> = _texts.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -129,6 +134,28 @@ class ReminderViewModel @Inject constructor(
 
     fun clearCalendarMessage() {
         _calendarMessage.value = null
+    }
+
+    // ---------------- 提示标语 ----------------
+
+    /** 保存标语：写入本地后，若已开启日历同步则重建事件让新标语生效 */
+    fun saveTexts(texts: List<String>) {
+        WaterReminderTexts.save(context, texts)
+        _texts.value = WaterReminderTexts.current(context)
+        viewModelScope.launch { if (calendarSync.isEnabled()) syncCalendar() }
+    }
+
+    fun resetTexts() {
+        WaterReminderTexts.reset(context)
+        _texts.value = WaterReminderTexts.current(context)
+        viewModelScope.launch {
+            if (calendarSync.isEnabled()) {
+                syncCalendar()
+                _calendarMessage.value = "已恢复默认标语，日历已同步"
+            } else {
+                _calendarMessage.value = "已恢复 ${WaterReminderTexts.DEFAULTS.size} 条默认标语"
+            }
+        }
     }
 
     fun onCalendarPermissionDenied() {

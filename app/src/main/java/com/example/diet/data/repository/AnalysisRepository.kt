@@ -5,6 +5,7 @@ import com.example.diet.domain.model.FoodSuggestion
 import com.example.diet.domain.model.MealAnalysis
 import com.example.diet.domain.model.MealAnalysisItem
 import com.example.diet.domain.model.MealAnalysisRequest
+import com.example.diet.domain.model.NutritionLabel
 import com.example.diet.domain.model.FoodSuggestionRequest
 import com.example.diet.util.DateUtils
 import com.example.diet.util.ImageCompressor
@@ -47,6 +48,22 @@ class AnalysisRepository @Inject constructor(
         val provider = llmManager.getActiveProvider()
             ?: return Result.failure(IllegalStateException("请先在设置中添加并选择一个 API"))
         return provider.fillNutrition(items)
+    }
+
+    /** 读取包装营养成分表：只做 OCR，换算留给本地 */
+    suspend fun readNutritionLabel(imageBytes: ByteArray): Result<NutritionLabel> {
+        val compressed = withContext(Dispatchers.IO) { ImageCompressor.compress(imageBytes) }
+        val provider = llmManager.getActiveProvider()
+            ?: return Result.failure(IllegalStateException("请先在设置中添加并选择一个 API"))
+        return provider.readNutritionLabel(compressed)
+    }
+
+    /** 按第二张照片估算克重（读营养表时用户不想手填） */
+    suspend fun estimateGrams(imageBytes: ByteArray, foodName: String): Result<Float> {
+        val compressed = withContext(Dispatchers.IO) { ImageCompressor.compress(imageBytes) }
+        val provider = llmManager.getActiveProvider()
+            ?: return Result.failure(IllegalStateException("请先在设置中添加并选择一个 API"))
+        return provider.estimateGrams(compressed, foodName)
     }
 
     suspend fun suggestFoods(remainingCalories: Int, date: String): Result<List<FoodSuggestion>> {

@@ -31,6 +31,45 @@ data class MealAnalysis(
     val items: List<MealAnalysisItem> = emptyList()
 )
 
+/**
+ * 包装食品的营养成分表读数。
+ * 模型只读出「标签基准 + 该基准下的数值」，换算到每 100g 与按克算热量全部在本地完成，
+ * 避免让模型做除法导致误差累积。
+ */
+data class NutritionLabel(
+    val name: String,
+    val brand: String = "",
+    /** 标签基准克数：每 100g 为 100，每份 30g 为 30 */
+    val basisGrams: Float = 100f,
+    /** 标签基准下的原始数值 */
+    val kcal: Float = 0f,
+    val proteinG: Float = 0f,
+    val carbG: Float = 0f,
+    val fatG: Float = 0f,
+    /** 液体饮料按每 100ml 标注 */
+    val liquid: Boolean = false,
+    val source: String = "包装营养标签"
+) {
+    private val factor: Float get() = if (basisGrams > 0f) 100f / basisGrams else 0f
+
+    val kcalPer100: Float get() = kcal * factor
+    val proteinPer100: Float get() = proteinG * factor
+    val carbPer100: Float get() = carbG * factor
+    val fatPer100: Float get() = fatG * factor
+
+    /** 每 100g 还是每 100ml，用于界面文案 */
+    val baseUnit: String get() = if (liquid) "ml" else "g"
+
+    /** 是否读到了可用数值 */
+    val isUsable: Boolean
+        get() = basisGrams > 0f &&
+            (kcal > 0f || proteinG > 0f || carbG > 0f || fatG > 0f)
+
+    /** 商品显示名：品牌 + 名称 */
+    val displayName: String
+        get() = if (brand.isBlank()) name else "$brand $name"
+}
+
 /** 每日三大营养素目标（克）与折算热量（kcal） */
 data class MacroTargets(
     val proteinG: Float,

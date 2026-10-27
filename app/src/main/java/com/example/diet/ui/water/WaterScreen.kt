@@ -52,6 +52,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.example.diet.data.local.entity.DrinkPreset
+import com.example.diet.data.local.entity.PURE_WATER_PRESET_NAME
 import com.example.diet.data.local.entity.WaterRecord
 import com.example.diet.domain.DrinkCalculator
 import com.example.diet.domain.DrinkNutrition
@@ -141,7 +142,7 @@ fun WaterScreen(navController: NavHostController, viewModel: WaterViewModel = hi
             SectionCard {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("水种", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { showCustomDialog = true }) { Text("自定义") }
+                    TextButton(onClick = { showCustomDialog = true }) { Text("编辑") }
                 }
                 FlowRow(
                     Modifier.fillMaxWidth(),
@@ -288,7 +289,7 @@ fun WaterScreen(navController: NavHostController, viewModel: WaterViewModel = hi
 
     if (showCustomDialog) {
         CustomPresetDialog(
-            customPresets = state.presets.filter { !it.builtIn },
+            presets = state.presets,
             onDismiss = { showCustomDialog = false },
             onSaveLiquid = { existing, name, ratio, kcal, protein, carb, fat ->
                 if (existing == null) {
@@ -649,7 +650,7 @@ private fun EditWaterDialog(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CustomPresetDialog(
-    customPresets: List<DrinkPreset>,
+    presets: List<DrinkPreset>,
     onDismiss: () -> Unit,
     onSaveLiquid: (DrinkPreset?, String, Int, Float, Float, Float, Float) -> Unit,
     onSavePowder: (DrinkPreset?, String, Float, Float, Float, Float, Float) -> Unit,
@@ -691,7 +692,7 @@ private fun CustomPresetDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (editing != null) "编辑水种" else "自定义水种") },
+        title = { Text(if (editing != null) "编辑水种" else "水种管理") },
         text = {
             Column(
                 Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
@@ -710,11 +711,13 @@ private fun CustomPresetDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                val nameLocked = editing?.name == PURE_WATER_PRESET_NAME
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("名称") },
+                    label = { Text(if (nameLocked) "名称（纯净水不可改名）" else "名称") },
                     singleLine = true,
+                    enabled = !nameLocked,
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (powder) {
@@ -772,13 +775,22 @@ private fun CustomPresetDialog(
                     }
                 }
 
-                if (customPresets.isNotEmpty()) {
+                if (presets.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     HorizontalDivider()
-                    customPresets.forEach { p ->
+                    Text(
+                        "已有水种：点铅笔修改，垃圾桶删除；纯净水为必需项，只能改数据",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    presets.forEach { p ->
+                        val deletable = p.name != PURE_WATER_PRESET_NAME
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(p.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    if (p.builtIn) "${p.name}（内置）" else p.name,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
                                 Text(
                                     if (p.kind == DrinkKind.POWDER) {
                                         "冲调 · 每份 ${p.servingGrams.roundToInt()} g · " +
@@ -799,13 +811,18 @@ private fun CustomPresetDialog(
                                     tint = DrinkBlue
                                 )
                             }
-                            IconButton(onClick = { onDelete(p) }) {
-                                Icon(
-                                    Icons.Filled.Delete,
-                                    contentDescription = "删除水种",
-                                    Modifier.size(18.dp),
-                                    tint = Color(0xFFE53935)
-                                )
+                            if (deletable) {
+                                IconButton(onClick = { onDelete(p) }) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "删除水种",
+                                        Modifier.size(18.dp),
+                                        tint = Color(0xFFE53935)
+                                    )
+                                }
+                            } else {
+                                // 纯净水不可删除，留出等宽占位让两行图标对齐
+                                Spacer(Modifier.size(48.dp))
                             }
                         }
                     }

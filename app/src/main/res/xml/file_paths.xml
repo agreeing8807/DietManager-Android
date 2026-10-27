@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 相机拍照写入缓存目录，仅用于分析，用完即删 -->
+<paths>
+    <cache-path name="photos" path="photos/" />
+</paths>

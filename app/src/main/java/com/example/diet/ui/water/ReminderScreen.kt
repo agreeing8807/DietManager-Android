@@ -23,12 +23,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -55,6 +58,7 @@ import androidx.navigation.NavHostController
 import com.example.diet.data.local.entity.ReminderSetting
 import com.example.diet.util.DateUtils
 import com.example.diet.util.ReminderScheduler
+import com.example.diet.util.WaterReminderTexts
 import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,9 +67,12 @@ fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewMode
     val reminders by viewModel.reminders.collectAsStateWithLifecycle()
     val calendarEnabled by viewModel.calendarEnabled.collectAsStateWithLifecycle()
     val calendarMessage by viewModel.calendarMessage.collectAsStateWithLifecycle()
+    val texts by viewModel.texts.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val allEnabled = reminders.isNotEmpty() && reminders.all { it.enabled }
     var exactPreferred by remember { mutableStateOf(ReminderScheduler.isExactAlarmPreferred(context)) }
+    // >= 0 表示编辑该下标的标语，-1 表示新增，null 表示未打开编辑框
+    var textDialogIndex by remember { mutableStateOf<Int?>(null) }
 
     val calendarPermissionGranted =
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
@@ -206,6 +213,20 @@ fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewMode
             Spacer(Modifier.height(12.dp))
 
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    ReminderTextsCard(
+                        texts = texts,
+                        onEdit = { textDialogIndex = it },
+                        onDelete = { index ->
+                            viewModel.saveTexts(texts.filterIndexed { i, _ -> i != index })
+                        },
+                        onAdd = { textDialogIndex = -1 },
+                        onReset = { viewModel.resetTexts() }
+                    )
+                }
+                item {
+                    Text("提醒时间", style = MaterialTheme.typography.titleMedium)
+                }
                 items(reminders, key = { it.id }) { setting ->
                     ReminderRow(setting = setting, onToggle = { viewModel.toggle(setting) }, onDelete = { viewModel.delete(setting) })
                 }
@@ -226,6 +247,23 @@ fun ReminderScreen(navController: NavHostController, viewModel: ReminderViewMode
             }
         }
     }
+
+    textDialogIndex?.let { index ->
+        TextEditDialog(
+            initial = texts.getOrNull(index).orEmpty(),
+            title = if (index >= 0) "编辑标语" else "新增标语",
+            onDismiss = { textDialogIndex = null },
+            onConfirm = { value ->
+                val updated = if (index >= 0) {
+                    texts.toMutableList().also { it[index] = value }
+                } else {
+                    texts + value
+                }
+                viewModel.saveTexts(updated)
+                textDialogIndex = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -239,4 +277,92 @@ private fun ReminderRow(setting: ReminderSetting, onToggle: () -> Unit, onDelete
             }
         }
     }
+}
+
+/** 提示标语管理：内置 8 条，可逐条编辑、删除或新增 */
+@Composable
+private fun ReminderTextsCard(
+    texts: List<String>,
+    onEdit: (Int) -> Unit,
+    onDelete: (Int) -> Unit,
+    onAdd: () -> Unit,
+    onReset: () -> Unit
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("提示标语", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "通知与日历事件会从中随机取一条；删空后改用默认文案「${WaterReminderTexts.FALLBACK_TEXT}」",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(onClick = onReset) { Text("恢复默认") }
+            }
+            texts.forEachIndexed { index, text ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${index + 1}. $text",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { onEdit(index) }) {
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = "编辑标语",
+                            Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(onClick = { onDelete(index) }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "删除标语",
+                            Modifier.size(18.dp),
+                            tint = Color(0xFFE53935)
+                        )
+                    }
+                }
+            }
+            TextButton(onClick = onAdd) { Text("+ 新增标语") }
+        }
+    }
+}
+
+@Composable
+private fun TextEditDialog(
+    initial: String,
+    title: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var draft by remember(initial) { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                label = { Text("标语内容") },
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(draft.trim()) }, enabled = draft.isNotBlank()) {
+                Text("保存")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }

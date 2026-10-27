@@ -59,6 +59,10 @@ object MealItems {
         )
     }
 
+    /** 条目水分合计（ml），只作为记录头缓存，不影响营养与状态 */
+    fun waterMl(items: List<MealItem>): Float =
+        items.fold(0f) { acc, item -> acc + item.waterMl.coerceAtLeast(0f) }
+
     /**
      * 整餐状态由条目推导：
      * 无条目、或所有条目都没有基准 → 缺失；部分条目缺基准 → 部分缺失；

@@ -5,6 +5,7 @@ import com.example.diet.domain.model.FoodSuggestionRequest
 import com.example.diet.domain.model.MealAnalysis
 import com.example.diet.domain.model.MealAnalysisItem
 import com.example.diet.domain.model.MealAnalysisRequest
+import com.example.diet.domain.model.NutritionLabel
 
 /**
  * 统一大模型接入接口。不同厂商通过配置实现可切换，
@@ -25,4 +26,17 @@ interface LLMProvider {
 
     /** 基于剩余热量与目标，给出推荐食物 */
     suspend fun suggestFoods(req: FoodSuggestionRequest): Result<List<FoodSuggestion>>
+
+    /**
+     * 读取包装上的营养成分表。
+     * 只做 OCR + 结构化：返回商品名、标签基准克数与该基准下的四项数值，
+     * 每 100g 归一化与按克算热量由本地完成。
+     */
+    suspend fun readNutritionLabel(imageBytes: ByteArray): Result<NutritionLabel>
+
+    /**
+     * 只看份量：估计照片里指定食物的可食用克数，用于给营养成分表补克重。
+     * 无法判断时返回 0。
+     */
+    suspend fun estimateGrams(imageBytes: ByteArray, foodName: String): Result<Float>
 }

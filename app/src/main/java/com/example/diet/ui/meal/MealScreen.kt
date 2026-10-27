@@ -3,6 +3,7 @@ package com.example.diet.ui.meal
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -50,6 +52,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +66,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.diet.data.local.entity.MealItem
@@ -70,10 +74,11 @@ import com.example.diet.data.local.entity.MealRecord
 import com.example.diet.domain.MealItems
 import com.example.diet.domain.model.DataStatus
 import com.example.diet.domain.model.MealType
+import com.example.diet.domain.model.NutritionLabel
 import com.example.diet.ui.component.Chip
 import com.example.diet.ui.component.SectionCard
 import com.example.diet.util.DateUtils
-import java.io.ByteArrayOutputStream
+import java.io.File
 import java.time.LocalTime
 import kotlin.math.roundToInt
 
@@ -88,23 +93,44 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
     var description by remember { mutableStateOf("") }
     var captured by remember { mutableStateOf<ByteArray?>(null) }
     var preview by remember { mutableStateOf<ImageBitmap?>(null) }
+    // 本次拍照要做什么：记录一餐 / 读营养成分表 / 给营养表补克重
+    var captureMode by remember { mutableStateOf(CaptureMode.MEAL) }
+    var pendingMode by remember { mutableStateOf(CaptureMode.MEAL) }
+    var pendingPhoto by remember { mutableStateOf<File?>(null) }
     var showSuggestions by remember { mutableStateOf(false) }
     var detailMeal by remember { mutableStateOf<MealRecord?>(null) }
     var editingMeal by remember { mutableStateOf<MealRecord?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? ->
-        bitmap?.let {
-            val stream = ByteArrayOutputStream()
-            it.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-            captured = stream.toByteArray()
-            preview = it.asImageBitmap()
+    // 用 TakePicture 写到缓存文件：全分辨率读图，营养表的小字才看得清
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val file = pendingPhoto
+        pendingPhoto = null
+        if (!success || file == null) return@rememberLauncherForActivityResult
+        val bytes = runCatching { file.readBytes() }.getOrNull()
+        file.delete()
+        if (bytes == null) {
+            android.widget.Toast.makeText(context, "读取照片失败", android.widget.Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+        when (captureMode) {
+            CaptureMode.MEAL -> {
+                captured = bytes
+                preview = decodePreview(bytes)
+            }
+            CaptureMode.LABEL -> viewModel.readNutritionLabel(bytes)
+            CaptureMode.PORTION -> viewModel.estimatePortion(bytes)
         }
     }
 
-    val launchCamera = {
+    val launchCamera: (CaptureMode) -> Unit = { mode ->
         try {
-            cameraLauncher.launch(null)
+            val dir = File(context.cacheDir, "photos").apply { mkdirs() }
+            val file = File.createTempFile("capture_", ".jpg", dir)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            pendingPhoto = file
+            captureMode = mode
+            cameraLauncher.launch(uri)
         } catch (e: Exception) {
             android.widget.Toast.makeText(context, "无法打开相机：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -112,9 +138,20 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
-            launchCamera()
+            launchCamera(pendingMode)
         } else {
             android.widget.Toast.makeText(context, "未授予相机权限，无法拍照", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val requestCamera: (CaptureMode) -> Unit = { mode ->
+        pendingMode = mode
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            launchCamera(mode)
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
@@ -219,22 +256,33 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
                     minLines = 2
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                            launchCamera()
-                        } else {
-                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                        }
-                    }) {
-                        Icon(Icons.Filled.CameraAlt, contentDescription = null)
+                // 两个 AI 入口：食物拍摄（识别菜品并估重）、营养成分表（读包装标签后本地换算）
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { requestCamera(CaptureMode.MEAL) }) {
+                        Icon(Icons.Filled.CameraAlt, contentDescription = null, Modifier.size(18.dp))
                         Spacer(Modifier.size(4.dp))
-                        Text(if (preview != null) "已拍摄（重拍）" else "拍照分析")
+                        Text(if (preview != null) "重拍" else "食物拍摄")
                     }
+                    TextButton(onClick = { requestCamera(CaptureMode.LABEL) }) {
+                        Icon(Icons.Filled.List, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.size(4.dp))
+                        Text("营养成分表")
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     preview?.let {
                         Image(it, contentDescription = null, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)))
                     }
-                    Spacer(Modifier.weight(1f))
+                    Text(
+                        if (preview != null) "照片已就绪，点右侧按钮开始分析" else "也可以只拍照、不填描述",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
                     FilledIconButton(
                         onClick = {
                             // 只有 VM 受理后才清空输入，避免重复点击/被拒时丢失内容
@@ -252,11 +300,18 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
                         else Icon(Icons.Filled.Add, contentDescription = "添加")
                     }
                 }
-                if (preview != null && description.isBlank()) {
+                if (state.labelLoading) {
                     Text(
-                        "只拍照也可以：会用支持视觉的模型按图片估算营养",
+                        "正在读取营养成分表…",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                state.labelError?.let { error ->
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
                 state.message?.let {
@@ -353,6 +408,7 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
             items = detailItems,
             analyzing = state.analyzing,
             onUpdateGrams = { item, grams -> viewModel.updateItemGrams(item, grams) },
+            onUpdateWater = { item, waterMl -> viewModel.updateItemWater(item, waterMl) },
             onDelete = { item -> viewModel.deleteItem(item) },
             onReanalyze = { viewModel.reanalyze(meal) },
             onDismiss = {
@@ -369,6 +425,20 @@ fun MealScreen(viewModel: MealViewModel = hiltViewModel()) {
             onSave = { type, desc, calories ->
                 viewModel.updateMeal(meal, type, desc, calories)
                 editingMeal = null
+            }
+        )
+    }
+
+    state.label?.let { label ->
+        NutritionLabelDialog(
+            label = label,
+            initialType = selectedType,
+            estimatedGrams = state.estimatedGrams,
+            estimating = state.estimatingPortion,
+            onEstimatePortion = { requestCamera(CaptureMode.PORTION) },
+            onDismiss = { viewModel.dismissLabel() },
+            onConfirm = { type, name, brand, kcal, protein, carb, fat, grams ->
+                viewModel.addFromLabel(type, name, brand, kcal, protein, carb, fat, grams)
             }
         )
     }
@@ -403,17 +473,17 @@ private fun MealTimelineRow(
                 Text(meal.description, style = MaterialTheme.typography.titleMedium)
                 // 状态来自数据字段，不再依赖 summary 文案前缀
                 val statusText = when (meal.status) {
-                    DataStatus.MISSING ->
-                        if (meal.analyzedByAi) "营养数据缺失 · AI 未查到可靠来源" else "营养数据缺失"
-                    DataStatus.PARTIAL -> "${meal.caloriesKcal} kcal · 部分食物缺少数据"
+                    DataStatus.MISSING -> "暂未算出数值，可点开明细补充"
+                    DataStatus.PARTIAL -> "${meal.caloriesKcal} kcal · 含估算项"
                     DataStatus.ESTIMATED -> "${meal.caloriesKcal} kcal · AI 分析"
                     DataStatus.CONFIRMED -> "${meal.caloriesKcal} kcal · 已确认"
                 }
                 Text(
                     statusText,
                     style = MaterialTheme.typography.bodySmall,
+                    // 只降级不标红：估算数据属于常态，不再用 error 色提示
                     color = if (meal.status.needsAttention) {
-                        MaterialTheme.colorScheme.error
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     } else {
                         MaterialTheme.colorScheme.primary
                     }
@@ -426,7 +496,13 @@ private fun MealTimelineRow(
                     )
                 }
                 Text(
-                    "蛋白质 ${meal.proteinG.roundToInt()} g · 碳水 ${meal.carbG.roundToInt()} g · 脂肪 ${meal.fatG.roundToInt()} g",
+                    buildString {
+                        append(
+                            "蛋白质 ${meal.proteinG.roundToInt()} g · 碳水 ${meal.carbG.roundToInt()} g · " +
+                                "脂肪 ${meal.fatG.roundToInt()} g"
+                        )
+                        if (meal.waterMl > 0f) append(" · 水分 ${meal.waterMl.roundToInt()} ml")
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -451,6 +527,7 @@ private fun MealItemDialog(
     items: List<MealItem>,
     analyzing: Boolean,
     onUpdateGrams: (MealItem, Float) -> Unit,
+    onUpdateWater: (MealItem, Float) -> Unit,
     onDelete: (MealItem) -> Unit,
     onReanalyze: () -> Unit,
     onDismiss: () -> Unit
@@ -475,13 +552,14 @@ private fun MealItemDialog(
                         MealItemRow(
                             item = item,
                             onUpdateGrams = { grams -> onUpdateGrams(item, grams) },
+                            onUpdateWater = { waterMl -> onUpdateWater(item, waterMl) },
                             onDelete = { onDelete(item) }
                         )
                     }
                     HorizontalDivider()
                     Text(
                         "改克数后按每 100g 基准本地重算，整餐合计与状态会自动更新；" +
-                            "摘要文字仍为分析时的快照",
+                            "饮品可点「水分」登记含水量，会一并计入当日饮水",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -504,8 +582,14 @@ private fun servingsLabel(value: Float): String =
     else String.format(java.util.Locale.CHINA, "%.1f", value)
 
 @Composable
-private fun MealItemRow(item: MealItem, onUpdateGrams: (Float) -> Unit, onDelete: () -> Unit) {
+private fun MealItemRow(
+    item: MealItem,
+    onUpdateGrams: (Float) -> Unit,
+    onUpdateWater: (Float) -> Unit,
+    onDelete: () -> Unit
+) {
     var gramsText by remember(item.id, item.grams) { mutableStateOf(item.grams.roundToInt().toString()) }
+    var editingWater by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -522,17 +606,30 @@ private fun MealItemRow(item: MealItem, onUpdateGrams: (Float) -> Unit, onDelete
                     if (item.hasBasis) {
                         append("约 ${nutrition.kcal} kcal · 蛋白 ${nutrition.proteinG.roundToInt()} g · ")
                     } else {
-                        append("缺营养数据 · ")
+                        append("待补充营养 · ")
                     }
                     append(item.source.ifBlank { "无来源" })
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (item.hasBasis) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.error
-                }
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // 饮品的水分：点这一行即可登记，计入当日饮水
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { editingWater = true }
+            ) {
+                Text(
+                    if (item.waterMl > 0f) "水分 ${item.waterMl.roundToInt()} ml" else "水分 0 ml",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = "设置水分",
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
         }
         OutlinedTextField(
             value = gramsText,
@@ -549,6 +646,57 @@ private fun MealItemRow(item: MealItem, onUpdateGrams: (Float) -> Unit, onDelete
             Icon(Icons.Filled.Delete, contentDescription = "删除", Modifier.size(18.dp), tint = Color(0xFFE53935))
         }
     }
+
+    if (editingWater) {
+        WaterInputDialog(
+            itemName = item.name,
+            current = item.waterMl,
+            onDismiss = { editingWater = false },
+            onConfirm = onUpdateWater
+        )
+    }
+}
+
+/** 给单条食物登记水分（饮品用），填 0 表示不计入饮水 */
+@Composable
+private fun WaterInputDialog(
+    itemName: String,
+    current: Float,
+    onDismiss: () -> Unit,
+    onConfirm: (Float) -> Unit
+) {
+    var text by remember(current) {
+        mutableStateOf(if (current > 0f) current.roundToInt().toString() else "")
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("设置水分") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(itemName, style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { value -> text = value.filter { it.isDigit() || it == '.' } },
+                    label = { Text("水分 (ml)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "奶茶、果汁等饮品填实际含水量（如 500ml 奶茶约 400ml），会一并计入当日饮水；填 0 表示不计入",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onConfirm(text.toFloatOrNull() ?: 0f)
+                onDismiss()
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -660,5 +808,163 @@ private fun SuggestionDialog(
             TextButton(onClick = onRefresh, enabled = !loading) { Text("换一批") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
+    )
+}
+
+/** 拍照用途：决定拿到照片字节后走哪条链路 */
+private enum class CaptureMode { MEAL, LABEL, PORTION }
+
+/** 预览用的小图：按 720px 采样，避免整张原图解码导致 OOM */
+private fun decodePreview(bytes: ByteArray): ImageBitmap? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    var sample = 1
+    while (bounds.outWidth / sample > 720 || bounds.outHeight / sample > 720) sample *= 2
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+}.getOrNull()
+
+private fun numText(value: Float): String =
+    if (value % 1f == 0f) value.roundToInt().toString()
+    else String.format(java.util.Locale.CHINA, "%.1f", value)
+
+/**
+ * 营养成分表确认框。
+ * 数值来自标签（可手动修正），克数由用户填写或再拍一张照片让模型估算，
+ * 热量在本地按「每 100g 数值 × 克数 / 100」换算，不再请求模型。
+ */
+@Composable
+private fun NutritionLabelDialog(
+    label: NutritionLabel,
+    initialType: MealType,
+    estimatedGrams: Float?,
+    estimating: Boolean,
+    onEstimatePortion: () -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: (MealType, String, String, Float, Float, Float, Float, Float) -> Unit
+) {
+    val unit = label.baseUnit
+    var name by remember(label) { mutableStateOf(label.name) }
+    var brand by remember(label) { mutableStateOf(label.brand) }
+    var kcal by remember(label) { mutableStateOf(numText(label.kcalPer100)) }
+    var protein by remember(label) { mutableStateOf(numText(label.proteinPer100)) }
+    var carb by remember(label) { mutableStateOf(numText(label.carbPer100)) }
+    var fat by remember(label) { mutableStateOf(numText(label.fatPer100)) }
+    var grams by remember(label) { mutableStateOf("") }
+    // 克重来源：自填 或 拍照给 AI 估
+    var usePhoto by remember(label) { mutableStateOf(false) }
+
+    // 第二张照片估出的克数到了就回填，并切回自填方便微调
+    LaunchedEffect(estimatedGrams) {
+        estimatedGrams?.let {
+            grams = it.roundToInt().toString()
+            usePhoto = false
+        }
+    }
+
+    val gramsValue = grams.toFloatOrNull() ?: 0f
+    val previewKcal = ((kcal.toFloatOrNull() ?: 0f) * gramsValue / 100f).roundToInt()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("营养成分表") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "已从标签读取，数值可修改",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("商品名") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = brand,
+                    onValueChange = { brand = it },
+                    label = { Text("品牌（可选）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                HorizontalDivider()
+                Text("每 100$unit（已由标签换算）", style = MaterialTheme.typography.labelMedium)
+                NumInput("热量 kcal/100$unit", kcal) { kcal = it }
+                NumInput("蛋白质 g/100$unit", protein) { protein = it }
+                NumInput("碳水 g/100$unit", carb) { carb = it }
+                NumInput("脂肪 g/100$unit", fat) { fat = it }
+                HorizontalDivider()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("自填克重", !usePhoto, onClick = { usePhoto = false })
+                    Chip("拍照估重", usePhoto, onClick = { usePhoto = true })
+                }
+                if (usePhoto) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "拍一张能看清分量的照片，估完会自动填回克数",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = onEstimatePortion, enabled = !estimating) {
+                            if (estimating) {
+                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("拍照")
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = grams,
+                        onValueChange = { text -> grams = text.filter { it.isDigit() || it == '.' } },
+                        label = { Text("本次克数 (g)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Text(
+                    "本地计算：约 $previewKcal kcal",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(
+                        initialType,
+                        name,
+                        brand,
+                        kcal.toFloatOrNull() ?: 0f,
+                        protein.toFloatOrNull() ?: 0f,
+                        carb.toFloatOrNull() ?: 0f,
+                        fat.toFloatOrNull() ?: 0f,
+                        gramsValue
+                    )
+                },
+                enabled = name.isNotBlank() && gramsValue > 0f
+            ) { Text("添加") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
+}
+
+@Composable
+private fun NumInput(label: String, value: String, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { text -> onChange(text.filter { it.isDigit() || it == '.' }) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth()
     )
 }

@@ -35,6 +35,11 @@ data class MealItem(
     val grams: Float = 0f,
     /** 可数单位的份数（1 个鸡蛋 / 2 个包子 / 1 勺），0 表示按克记录 */
     val servings: Float = 0f,
+    /**
+     * 该条目带来的水分（ml）。饮品用：如一杯 500ml 奶茶约 400ml 水分。
+     * 0 表示不含水分，按 0 计入，不影响饮水统计。
+     */
+    val waterMl: Float = 0f,
     // ---- 每 100g 基准，来自内置成分表或模型补数 ----
     val kcalPer100g: Float = 0f,
     val proteinPer100g: Float = 0f,

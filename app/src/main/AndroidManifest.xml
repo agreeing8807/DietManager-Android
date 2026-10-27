@@ -51,6 +51,18 @@
             android:name=".receiver.ReminderBroadcastReceiver"
             android:exported="false" />
 
+        <!-- 拍照分析：把相机输出写到缓存目录的临时文件，
+             用完整分辨率读图，营养表的小字才看得清 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- DietApp 实现 Configuration.Provider（WorkManager 按需初始化），
              需移除默认 InitializationProvider 里的 WorkManagerInitializer，否则 release lint 致命报错 -->
         <provider

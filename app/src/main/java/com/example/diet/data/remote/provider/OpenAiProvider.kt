@@ -11,6 +11,8 @@ import com.example.diet.data.remote.model.FoodSuggestionListJson
 import com.example.diet.data.remote.model.IdentifyItemJson
 import com.example.diet.data.remote.model.MealIdentifyJson
 import com.example.diet.data.remote.model.NutritionFillJson
+import com.example.diet.data.remote.model.NutritionLabelJson
+import com.example.diet.data.remote.model.PortionEstimateJson
 import com.example.diet.data.remote.model.ResponseFormat
 import com.example.diet.domain.MealSummaryFormatter
 import com.example.diet.domain.NutritionTools
@@ -22,6 +24,7 @@ import com.example.diet.domain.model.FoodSuggestionRequest
 import com.example.diet.domain.model.MealAnalysis
 import com.example.diet.domain.model.MealAnalysisItem
 import com.example.diet.domain.model.MealAnalysisRequest
+import com.example.diet.domain.model.NutritionLabel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -64,6 +67,14 @@ class OpenAiProvider(
 
     private fun suggestPrompt(): String =
         apiKeyStore.getSetting("prompt_suggest", DEFAULT_SUGGEST).ifBlank { DEFAULT_SUGGEST }
+
+    /** 营养成分表读取：只 OCR + 结构化，不做换算 */
+    private fun labelPrompt(): String =
+        apiKeyStore.getSetting("prompt_label", DEFAULT_LABEL).ifBlank { DEFAULT_LABEL }
+
+    /** 份量估算：只回答克数 */
+    private fun portionPrompt(): String =
+        apiKeyStore.getSetting("prompt_portion", DEFAULT_PORTION).ifBlank { DEFAULT_PORTION }
 
     override suspend fun analyzeMeal(req: MealAnalysisRequest): Result<MealAnalysis> {
         if (apiKey.isBlank()) return Result.failure(
@@ -303,7 +314,7 @@ class OpenAiProvider(
         servings = if (servings > 0f) servings.coerceAtMost(50f) else 0f
     )
 
-    /** 置信度过低或四项全 0 时视为不可用，宁缺毋滥 */
+    /** 置信度过低或四项全 0 时视为不可用；门槛已放宽，同类估算会被保留 */
     private fun FillItemJson.toPer100(): Per100g? {
         if (confidence < MIN_CONFIDENCE) return null
         if (kcalPer100g <= 0f && proteinPer100g <= 0f && carbPer100g <= 0f && fatPer100g <= 0f) return null
@@ -366,6 +377,95 @@ class OpenAiProvider(
         }
     }
 
+    /**
+     * 营养成分表：只读标签，不做换算。
+     * 归一化到每 100g 与按克算热量都在本地完成，模型算错除法的风险降为零。
+     */
+    override suspend fun readNutritionLabel(imageBytes: ByteArray): Result<NutritionLabel> {
+        if (apiKey.isBlank()) return Result.failure(
+            IllegalStateException("未配置 ${config.name} 的 API Key")
+        )
+        if (!config.supportsImage(model)) return Result.failure(
+            IllegalStateException(
+                "当前模型（${config.name} / ${model.ifBlank { config.defaultModel }}）不支持图片，" +
+                    "读取营养成分表需要视觉模型，如 qwen-vl-plus、glm-4v、deepseek-flash"
+            )
+        )
+        return runCatching {
+            val request = ChatCompletionRequest(
+                model = model.ifBlank { config.defaultModel },
+                messages = listOf(
+                    ChatMessage("system", JsonPrimitive(labelPrompt())),
+                    ChatMessage(
+                        "user",
+                        imageContent(imageBytes, "读取这张包装上的营养成分表，按 JSON 返回。")
+                    )
+                ),
+                temperature = 0.1,
+                response_format = ResponseFormat("json_object")
+            )
+            val raw = complete(request, "未识别到营养成分表，请对准标签、保证文字清晰后重拍")
+            val parsed = json.decodeFromString<NutritionLabelJson>(stripFences(raw))
+            NutritionLabel(
+                name = parsed.name.trim().ifBlank { "包装食品" },
+                brand = parsed.brand.trim(),
+                basisGrams = parsed.basisGrams.takeIf { it > 0f } ?: 100f,
+                kcal = parsed.kcal.coerceAtLeast(0f),
+                proteinG = parsed.proteinG.coerceAtLeast(0f),
+                carbG = parsed.carbG.coerceAtLeast(0f),
+                fatG = parsed.fatG.coerceAtLeast(0f),
+                liquid = parsed.liquid,
+                source = parsed.source.trim().ifBlank { "包装营养标签" }
+            )
+        }
+    }
+
+    /** 只估份量：给营养成分表补克重时使用，不触碰营养数值 */
+    override suspend fun estimateGrams(imageBytes: ByteArray, foodName: String): Result<Float> {
+        if (apiKey.isBlank()) return Result.failure(
+            IllegalStateException("未配置 ${config.name} 的 API Key")
+        )
+        if (!config.supportsImage(model)) return Result.failure(
+            IllegalStateException("当前模型不支持图片，无法按照片估算份量")
+        )
+        return runCatching {
+            val request = ChatCompletionRequest(
+                model = model.ifBlank { config.defaultModel },
+                messages = listOf(
+                    ChatMessage("system", JsonPrimitive(portionPrompt())),
+                    ChatMessage(
+                        "user",
+                        imageContent(
+                            imageBytes,
+                            "估算这张照片里「${foodName.ifBlank { "食物" }}」的可食用克数，按 JSON 返回。"
+                        )
+                    )
+                ),
+                temperature = 0.2,
+                response_format = ResponseFormat("json_object")
+            )
+            val raw = complete(request, "未能估算份量，请换一张能看清分量的照片")
+            val parsed = json.decodeFromString<PortionEstimateJson>(stripFences(raw))
+            parsed.grams.coerceIn(0f, NutritionTools.MAX_GRAMS)
+        }
+    }
+
+    /** 图片 + 一句指令的 user content，供读标签与估份量复用 */
+    private fun imageContent(imageBytes: ByteArray, text: String): JsonElement {
+        val b64 = Base64.getEncoder().encodeToString(imageBytes)
+        val imageUrl = if (config.imageDataUri) "data:image/jpeg;base64,$b64" else b64
+        return buildJsonArray {
+            add(buildJsonObject {
+                put("type", JsonPrimitive("text"))
+                put("text", JsonPrimitive(text))
+            })
+            add(buildJsonObject {
+                put("type", JsonPrimitive("image_url"))
+                put("image_url", buildJsonObject { put("url", JsonPrimitive(imageUrl)) })
+            })
+        }
+    }
+
     private fun buildUserContent(req: MealAnalysisRequest): JsonElement {
         return if (req.imageBytes != null && config.supportsImage(model)) {
             val b64 = Base64.getEncoder().encodeToString(req.imageBytes)
@@ -416,8 +516,11 @@ class OpenAiProvider(
     }
 
     companion object {
-        /** 低于该置信度的补数结果视为不可用 */
-        private const val MIN_CONFIDENCE = 0.3f
+        /**
+         * 低于该置信度的补数结果视为不可用。
+         * 门槛从 0.3 降到 0.15：同类食物估算通常落在 0.2~0.4，过严会把合理估值全部丢掉。
+         */
+        private const val MIN_CONFIDENCE = 0.15f
 
         val DEFAULT_IDENTIFY = """
             你是食物识别助手。唯一任务是判断用户这一餐吃了什么、大约多少克，不要计算任何营养数值。
@@ -427,8 +530,10 @@ class OpenAiProvider(
             2. name：具体名称，不含品牌与份量，如「番茄炒蛋」「板烧鸡腿堡」「生椰拿铁」。
             3. brand：仅当品牌可从图片包装或文字确认时填写，否则空串，严禁臆测。
             4. servings：可数单位的份数，如 1 个鸡蛋、2 个包子、1 勺蛋白粉、1 瓶饮料；无法按份表述（如一份炒菜）时填 0。
-            5. grams：可食用部分总克数（饮品按 ml 近似为 g）；参考常见份量与包装规格（一份米饭约 200g、一瓶饮料 500ml、一包薯片 40g）。
-               实在无法判断克数时填 0 —— 系统会用内置的每份克数乘以 servings 推导，不要为了填满而编造。
+            5. grams：可食用部分总克数（饮品按 ml 近似为 g），必须给出估计值，不要填 0。
+               参考常见份量：一份米饭约 200g、一份炒菜 250g、一个鸡蛋 50g、一个包子 80g、
+               一瓶饮料 500ml、一包薯片 40g；看不清时按同类食物的常见份量取值，
+               再按图片里的大小、深浅、堆叠程度做增减，宁可略保守也不要留空。
             6. packaged：有品牌包装、条码或明确商品名时为 true；家常菜、散装食材、餐馆现制菜品为 false。
 
             【title 规则】
@@ -454,12 +559,52 @@ class OpenAiProvider(
             1. 只补数据，不点评、不合并条目；返回的 name 必须与输入完全一致，条数与输入一致。
             2. 包装商品：按该商品营养标签的每 100g 值填写，source 写「品牌/商品营养标签」。
             3. 普通食物：按权威食物成分表典型值填写，source 写「中国食物成分表典型值」等依据。
-            4. 无可靠数据时：四项数值填 0、confidence 填 0、source 空串；严禁编造或估算。
-            5. confidence 为 0~1 的可靠程度，低于 0.3 视为不可用。
+            4. 即使不完全确定，也必须给出该食物最接近的同类典型值，不要因为"拿不准"就填 0：
+               先找同名或近义食物的成分表数据，其次按类别（主食/肉类/蔬菜/水果/饮品/零食）取典型值；
+               source 写清依据，例如「同类食物估算：炒面」。只有完全无法归类（如不明成分的自制酱料）
+               才四项填 0、confidence 填 0。
+            5. confidence 为 0~1 的可靠程度，按把握如实填写：有明确成分表数据填 0.8~1.0，
+               按同类食物推断填 0.3~0.6，纯类别估计填 0.15~0.3。
             6. 单位：热量 kcal，蛋白质/碳水/脂肪 g，均为每 100g。
 
             【输出】仅返回一个 JSON 对象，不要解释、不要 markdown 代码块：
             {"items":[{"name":"食物","kcalPer100g":0,"proteinPer100g":0,"carbPer100g":0,"fatPer100g":0,"source":"","confidence":0.8}]}
+        """.trimIndent()
+
+        val DEFAULT_LABEL = """
+            你是包装食品营养成分表的读取工具。只读标签上的原文，不做任何换算、不做任何估算。
+
+            【字段要求】
+            1. name：商品名，取自包装正面或标签上的产品名称，如「希腊风味酸奶」「全麦吐司」；
+               不要带「营养成分表」「配料表」等字样。
+            2. brand：包装上的品牌名；看不清就留空串，严禁臆测。
+            3. basisGrams：标签数值对应的基准克数。
+               标注「每 100g」填 100；标注「每份 30g」「每袋 25g」时填该克数；无法确认填 100。
+            4. kcal / proteinG / carbG / fatG：严格照抄标签在该基准下的数值，单位 kcal 与 g。
+               标签用 kJ 时按 1 kcal = 4.184 kJ 换算后填入，并在 source 注明「由 kJ 换算」。
+               标签只给「每份」时，直接填每份数值，不要把每份换算成每 100g。
+            5. liquid：饮料、乳品等按毫升标注时为 true，否则 false。
+            6. source：读取依据，如「包装营养成分表 · 每 100g」。
+
+            【注意】
+            - 某一行看不清时该字段填 0，不要猜。
+            - 只要能看到产品名，name 就不要留空。
+            - 仅返回一个 JSON 对象，不要解释、不要 markdown 代码块：
+            {"name":"商品名","brand":"","basisGrams":100,"kcal":250,"proteinG":5.2,"carbG":30,"fatG":10,"liquid":false,"source":"包装营养成分表"}
+        """.trimIndent()
+
+        val DEFAULT_PORTION = """
+            你是份量估算工具。根据照片估计指定食物可食用部分的重量（克）。
+
+            【要求】
+            1. 用照片里的参照物推断体积：餐具、手掌、包装规格、标准餐盘。
+            2. 常见参照：一碗米饭约 200g、一个鸡蛋约 50g、一个包子约 80g、
+               一份炒菜约 250g、一片吐司约 30g、一杯饮品约 300ml（按 1ml ≈ 1g 计）。
+            3. 只给重量，不判断营养、不点评、不建议。
+            4. 完全看不清时 grams 填 0，并在 note 说明原因。
+
+            【输出】仅返回一个 JSON 对象，不要解释、不要 markdown 代码块：
+            {"grams":250,"note":"标准餐盘中的一份"}
         """.trimIndent()
 
         val DEFAULT_SUGGEST = """

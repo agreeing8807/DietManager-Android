@@ -6,6 +6,7 @@ import com.example.diet.data.local.dao.MealItemDao
 import com.example.diet.data.local.entity.MealItem
 import com.example.diet.data.local.entity.MealRecord
 import com.example.diet.domain.MealItems
+import com.example.diet.domain.model.DataStatus
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -80,9 +81,19 @@ class MealRepository @Inject constructor(
                 proteinG = totals.proteinG,
                 carbG = totals.carbG,
                 fatG = totals.fatG,
+                waterMl = MealItems.waterMl(items),
                 status = MealItems.status(items)
             )
         )
+    }
+
+    /**
+     * 只更新摘要与状态，其余汇总字段沿用 [syncTotals] 的结果。
+     * 重新分析后必须用这个方法写摘要，否则旧快照会把新的热量与水分覆盖回去。
+     */
+    suspend fun updateSummary(recordId: Long, summary: String, status: DataStatus) {
+        val current = dao.getById(recordId) ?: return
+        dao.update(current.copy(summary = summary, status = status))
     }
 
     /** 备份用 */

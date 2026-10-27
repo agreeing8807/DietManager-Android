@@ -16,6 +16,7 @@ import com.example.diet.domain.model.DataStatus
 import com.example.diet.domain.model.FoodSuggestion
 import com.example.diet.domain.model.MealAnalysis
 import com.example.diet.domain.model.MealType
+import com.example.diet.domain.model.NutritionLabel
 import com.example.diet.util.DateUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 /** 当前展示的日期与该日用餐记录 */
 data class MealDayState(
@@ -56,7 +58,14 @@ data class MealUiState(
     val message: String? = null,
     val suggestions: List<FoodSuggestion> = emptyList(),
     val suggesting: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    /** 营养成分表识别结果；非空时界面弹出确认框 */
+    val label: NutritionLabel? = null,
+    val labelLoading: Boolean = false,
+    val labelError: String? = null,
+    /** 按第二张照片估出的克数，用于回填输入框 */
+    val estimatedGrams: Float? = null,
+    val estimatingPortion: Boolean = false
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -175,6 +184,130 @@ class MealViewModel @Inject constructor(
         return true
     }
 
+    // ---------------- 营养成分表 ----------------
+
+    /**
+     * 拍照读取包装营养成分表。
+     * 模型只负责 OCR，这里拿到的是标签原始数值，克数由用户决定后才落库。
+     */
+    fun readNutritionLabel(imageBytes: ByteArray) {
+        if (_uiState.value.labelLoading) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(labelLoading = true, labelError = null) }
+            analysisRepository.readNutritionLabel(imageBytes).fold(
+                onSuccess = { label ->
+                    val usable = label.isUsable
+                    _uiState.update {
+                        it.copy(
+                            labelLoading = false,
+                            label = label.takeIf { usable },
+                            labelError = if (usable) null else "没读到有效数值，请对准营养成分表、保证文字清晰后重拍"
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(labelLoading = false, labelError = e.message ?: "读取营养成分表失败")
+                    }
+                }
+            )
+        }
+    }
+
+    /** 用第二张照片估算克重，只回填确认框，不落库 */
+    fun estimatePortion(imageBytes: ByteArray) {
+        val label = _uiState.value.label ?: return
+        if (_uiState.value.estimatingPortion) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(estimatingPortion = true) }
+            analysisRepository.estimateGrams(imageBytes, label.name).fold(
+                onSuccess = { grams ->
+                    _uiState.update {
+                        it.copy(
+                            estimatingPortion = false,
+                            estimatedGrams = grams.takeIf { g -> g > 0f },
+                            message = if (grams > 0f) {
+                                "已按照片估算 ${grams.roundToInt()} g"
+                            } else {
+                                "未能估算份量，请手动填写克数"
+                            }
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(estimatingPortion = false, message = "份量估算失败：${e.message}")
+                    }
+                }
+            )
+        }
+    }
+
+    fun dismissLabel() {
+        _uiState.update {
+            it.copy(label = null, labelError = null, estimatedGrams = null, estimatingPortion = false)
+        }
+    }
+
+    /**
+     * 用营养成分表 + 克数直接落库：每 100g 数据已由标签换算，热量本地计算，不再调用模型。
+     * @return 是否受理
+     */
+    fun addFromLabel(
+        type: MealType,
+        name: String,
+        brand: String,
+        kcalPer100: Float,
+        proteinPer100: Float,
+        carbPer100: Float,
+        fatPer100: Float,
+        grams: Float
+    ): Boolean {
+        if (name.isBlank() || grams <= 0f) return false
+        viewModelScope.launch {
+            val date = DateUtils.today(dayState.value.profile.dayStartHour)
+            val item = MealItem(
+                recordId = 0L,
+                name = name.trim(),
+                brand = brand.trim(),
+                grams = grams.coerceIn(0f, 5000f),
+                kcalPer100g = kcalPer100.coerceAtLeast(0f),
+                proteinPer100g = proteinPer100.coerceAtLeast(0f),
+                carbPer100g = carbPer100.coerceAtLeast(0f),
+                fatPer100g = fatPer100.coerceAtLeast(0f),
+                source = "包装营养标签",
+                confidence = 1f,
+                status = DataStatus.CONFIRMED
+            )
+            val nutrition = MealItems.nutritionOf(item)
+            val record = MealRecord(
+                date = date,
+                type = type,
+                description = if (item.brand.isBlank()) item.name else "${item.brand} ${item.name}",
+                caloriesKcal = nutrition.kcal,
+                proteinG = nutrition.proteinG,
+                carbG = nutrition.carbG,
+                fatG = nutrition.fatG,
+                summary = "按包装营养成分表：每 100g ${item.kcalPer100g.roundToInt()} kcal，" +
+                    "本次 ${item.grams.roundToInt()}g 共 ${nutrition.kcal} kcal",
+                analyzedByAi = true,
+                status = DataStatus.CONFIRMED
+            )
+            val recordId = mealRepository.addMeal(record)
+            mealRepository.addItems(recordId, listOf(item.copy(recordId = recordId)))
+            mealRepository.syncTotals(recordId)
+            _uiState.update {
+                it.copy(
+                    label = null,
+                    labelError = null,
+                    estimatedGrams = null,
+                    message = "已按营养成分表添加"
+                )
+            }
+        }
+        return true
+    }
+
     fun updateMeal(record: MealRecord, type: MealType, description: String, calories: Int) {
         viewModelScope.launch {
             val trimmed = description.ifBlank { record.description }
@@ -229,6 +362,18 @@ class MealViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 设置某项的水分（ml）：奶茶、果汁这类饮品在餐食里也能计入饮水统计。
+     * 填 0 表示该条目不含水分；不改变营养与克数。
+     */
+    fun updateItemWater(item: MealItem, waterMl: Float) {
+        viewModelScope.launch {
+            mealRepository.updateItem(
+                item.copy(waterMl = waterMl.coerceIn(0f, 5000f))
+            )
+        }
+    }
+
     /** 删除某项后，记录头会自动重算；删空则整餐标记为缺失 */
     fun deleteItem(item: MealItem) {
         viewModelScope.launch { mealRepository.deleteItem(item) }
@@ -253,8 +398,11 @@ class MealViewModel @Inject constructor(
                                 MealItems.toEntity(record.id, index, item)
                             }
                         )
-                        mealRepository.updateMeal(
-                            record.copy(summary = analysis.summary, status = analysis.status)
+                        // 只写摘要与状态：汇总字段已由 replaceItems 内的 syncTotals 重算
+                        mealRepository.updateSummary(
+                            recordId = record.id,
+                            summary = analysis.summary,
+                            status = analysis.status
                         )
                         if (analysis.items.isEmpty()) {
                             "仍未识别出食物，可补充描述后重试"
@@ -275,7 +423,12 @@ class MealViewModel @Inject constructor(
                                 val origin = missing.getOrNull(index) ?: return@mapIndexedNotNull null
                                 if (item.per100 == null) return@mapIndexedNotNull null
                                 MealItems.toEntity(record.id, index, item)
-                                    .copy(id = origin.id, sortOrder = origin.sortOrder)
+                                    // 保留用户手动登记的水分，补数只改营养基准
+                                    .copy(
+                                        id = origin.id,
+                                        sortOrder = origin.sortOrder,
+                                        waterMl = origin.waterMl
+                                    )
                             }
                             if (updates.isEmpty()) {
                                 "仍未查到可靠数据，可手动补克数或删除该条目"

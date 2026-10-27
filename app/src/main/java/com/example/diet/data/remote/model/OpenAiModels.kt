@@ -79,8 +79,38 @@ data class FillItemJson(
     val fatPer100g: Float = 0f,
     /** 数据来源/依据，如「同类食物典型值」；未知留空 */
     val source: String = "",
-    /** 0~1，低于 0.3 视为不可用 */
+    /** 0~1，低于 0.15 视为不可用 */
     val confidence: Float = 0f
+)
+
+/**
+ * 结构化解析：包装营养成分表。
+ * 只读取标签原文，不做换算 —— 每 100g 归一化由本地按 [basisGrams] 计算。
+ */
+@Serializable
+data class NutritionLabelJson(
+    /** 商品名，如「希腊风味酸奶」 */
+    val name: String = "",
+    val brand: String = "",
+    /** 标签的基准克数：标注「每 100g」填 100，标注「每份 30g」填 30 */
+    val basisGrams: Float = 100f,
+    /** 该基准下的四项数值，必须与标签完全一致，不做换算 */
+    val kcal: Float = 0f,
+    val proteinG: Float = 0f,
+    val carbG: Float = 0f,
+    val fatG: Float = 0f,
+    /** 液体饮料按每 100ml 标注时为 true */
+    val liquid: Boolean = false,
+    /** 读取依据，如「包装营养成分表」 */
+    val source: String = ""
+)
+
+/** 结构化解析：只估算份量克数（用于给营养成分表补克重） */
+@Serializable
+data class PortionEstimateJson(
+    val grams: Float = 0f,
+    /** 估算依据，如「标准餐盘中的一半」 */
+    val note: String = ""
 )
 
 /** 结构化解析：食物推荐 */

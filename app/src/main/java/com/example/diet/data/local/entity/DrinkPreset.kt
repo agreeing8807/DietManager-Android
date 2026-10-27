@@ -34,9 +34,12 @@ data class DrinkPreset(
     val sortOrder: Int = 0
 )
 
-/** 内置水种（首次使用时写入数据库，可编辑比例、可删除） */
+/** 必须保留的基础水种：比例与营养可编辑，但不允许删除或改名 */
+const val PURE_WATER_PRESET_NAME = "纯净水"
+
+/** 内置水种（首次使用时写入数据库，可编辑比例、可删除；仅纯净水不可删改） */
 val DEFAULT_DRINK_PRESETS: List<DrinkPreset> = listOf(
-    DrinkPreset(name = "纯净水", builtIn = true, waterRatio = 1f, sortOrder = 0),
+    DrinkPreset(name = PURE_WATER_PRESET_NAME, builtIn = true, waterRatio = 1f, sortOrder = 0),
     DrinkPreset(
         name = "牛奶", builtIn = true, waterRatio = 0.87f,
         caloriesPer100ml = 54f, proteinPer100ml = 3.0f,

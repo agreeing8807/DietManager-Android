@@ -50,7 +50,12 @@ class CalendarReminderSync(private val context: Context) {
         val enabled = settings.filter { it.enabled }
         if (enabled.isEmpty()) return Result.success(0)
 
-        val inserted = enabled.mapNotNull { insertDailyEvent(calendarId, it) }
+        // 每条提醒分配一句标语，循环使用用户自定义的列表；删空时统一用兜底文案
+        val texts = WaterReminderTexts.current(context)
+            .ifEmpty { listOf(WaterReminderTexts.FALLBACK_TEXT) }
+        val inserted = enabled.mapIndexedNotNull { index, setting ->
+            insertDailyEvent(calendarId, setting, texts[index % texts.size])
+        }
         prefs.edit().putString(KEY_EVENT_IDS, inserted.joinToString(",")).apply()
         if (inserted.isEmpty()) {
             return Result.failure(IllegalStateException("日历拒绝写入，请检查日历账号权限"))
@@ -105,7 +110,7 @@ class CalendarReminderSync(private val context: Context) {
         }.getOrNull()
     }
 
-    private fun insertDailyEvent(calendarId: Long, setting: ReminderSetting): Long? {
+    private fun insertDailyEvent(calendarId: Long, setting: ReminderSetting, title: String): Long? {
         val start = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, setting.timeMinutesOfDay / 60)
             set(Calendar.MINUTE, setting.timeMinutesOfDay % 60)
@@ -116,7 +121,7 @@ class CalendarReminderSync(private val context: Context) {
 
         val values = ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, calendarId)
-            put(CalendarContract.Events.TITLE, TITLE)
+            put(CalendarContract.Events.TITLE, title.ifBlank { "喝水提醒" })
             put(CalendarContract.Events.DESCRIPTION, DESCRIPTION)
             put(CalendarContract.Events.DTSTART, start.timeInMillis)
             put(CalendarContract.Events.DTEND, end.timeInMillis)
@@ -145,7 +150,6 @@ class CalendarReminderSync(private val context: Context) {
         private const val PREFS = "calendar_reminder_prefs"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_EVENT_IDS = "event_ids"
-        private const val TITLE = "喝水提醒"
         private const val DESCRIPTION = "由「饮食管理」写入，可在应用内的喝水提醒页关闭"
     }
 }

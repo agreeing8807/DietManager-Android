@@ -22,7 +22,7 @@ object MealSummaryFormatter {
         val resolved = items.filter { it.per100 != null }
 
         if (resolved.isEmpty()) {
-            lines += "⚠ 未找到可靠的营养成分数据，本次不给出数值，避免臆测"
+            lines += "本次营养数值待补充，可点开明细修正"
         } else {
             val names = buildString {
                 append(resolved.take(3).joinToString("、") { "${it.name} ${it.grams.roundToInt()}g" })
@@ -45,7 +45,7 @@ object MealSummaryFormatter {
         }
 
         if (missingNames.isNotEmpty()) {
-            lines += "「${missingNames.distinct().joinToString("、")}」缺少份量或营养数据，未计入合计"
+            lines += "「${missingNames.distinct().joinToString("、")}」暂未计入合计，可点开明细补充"
         }
         if (conflict.isNotBlank()) lines += "描述与图片不一致：$conflict"
         if (imageIgnored) lines += "（当前模型不支持图片，已按文字描述估算）"

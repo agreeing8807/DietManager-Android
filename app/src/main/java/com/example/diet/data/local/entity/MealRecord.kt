@@ -25,6 +25,8 @@ data class MealRecord(
     val proteinG: Float,
     val carbG: Float,
     val fatG: Float,
+    /** 明细水分的汇总缓存（ml），口径由 [com.example.diet.domain.DayLedger] 统一 */
+    val waterMl: Float = 0f,
     val summary: String,         // 大模型分析摘要
     val analyzedByAi: Boolean = false,
     val status: DataStatus = DataStatus.ESTIMATED,

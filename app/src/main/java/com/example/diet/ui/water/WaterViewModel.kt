@@ -4,9 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.diet.data.local.dao.DailyVolume
 import com.example.diet.data.local.entity.DrinkPreset
+import com.example.diet.data.local.entity.PURE_WATER_PRESET_NAME
 import com.example.diet.data.local.entity.UserProfile
 import com.example.diet.data.local.entity.WaterRecord
 import com.example.diet.data.repository.DrinkPresetRepository
+import com.example.diet.data.repository.MealRepository
 import com.example.diet.data.repository.ProfileRepository
 import com.example.diet.data.repository.WaterRepository
 import com.example.diet.domain.DayLedger
@@ -52,7 +54,8 @@ data class PastDayDetail(
 class WaterViewModel @Inject constructor(
     private val waterRepository: WaterRepository,
     private val profileRepository: ProfileRepository,
-    private val presetRepository: DrinkPresetRepository
+    private val presetRepository: DrinkPresetRepository,
+    private val mealRepository: MealRepository
 ) : ViewModel() {
 
     val uiState: StateFlow<WaterUiState> = profileRepository.observeProfile()
@@ -63,9 +66,11 @@ class WaterViewModel @Inject constructor(
             combine(
                 presetRepository.observeAll(),
                 waterRepository.observeByDate(date),
-                waterRepository.observeDailyTotalsBetween(start, date)
-            ) { presets, records, daily ->
-                val intake = DayLedger.of(emptyList(), records)
+                waterRepository.observeDailyTotalsBetween(start, date),
+                // 餐食里登记的饮品水分也要计入当日饮水，口径与首页保持一致
+                mealRepository.observeByDate(date)
+            ) { presets, records, daily, meals ->
+                val intake = DayLedger.of(meals, records)
                 WaterUiState(
                     profile = profile,
                     date = date,
@@ -329,12 +334,14 @@ class WaterViewModel @Inject constructor(
     }
 
     fun deletePreset(preset: DrinkPreset) {
+        // 纯净水是必须保留的基础水种，删除请求直接忽略
+        if (preset.name == PURE_WATER_PRESET_NAME) return
         viewModelScope.launch { presetRepository.delete(preset) }
     }
 
     private fun typeOf(preset: DrinkPreset): DrinkType = when {
         preset.kind == DrinkKind.POWDER -> DrinkType.POWDER
-        preset.name == "纯净水" -> DrinkType.WATER
+        preset.name == PURE_WATER_PRESET_NAME -> DrinkType.WATER
         preset.name == "绿茶" -> DrinkType.TEA
         preset.name == "奶茶" -> DrinkType.MILK_TEA
         else -> DrinkType.OTHER

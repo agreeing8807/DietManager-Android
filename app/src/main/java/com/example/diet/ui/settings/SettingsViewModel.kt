@@ -32,6 +32,8 @@ data class SettingsUiState(
     val newApiKey: String = "",
     val promptIdentify: String = "",
     val promptSuggest: String = "",
+    val promptLabel: String = "",
+    val promptPortion: String = "",
     val message: String? = null,
     val adding: Boolean = false,
     val testing: Boolean = false,
@@ -56,6 +58,8 @@ class SettingsViewModel @Inject constructor(
             val first = vendors.first()
             val promptIdentify = apiKeyStore.getSetting("prompt_identify", OpenAiProvider.DEFAULT_IDENTIFY)
             val promptSuggest = apiKeyStore.getSetting("prompt_suggest", OpenAiProvider.DEFAULT_SUGGEST)
+            val promptLabel = apiKeyStore.getSetting("prompt_label", OpenAiProvider.DEFAULT_LABEL)
+            val promptPortion = apiKeyStore.getSetting("prompt_portion", OpenAiProvider.DEFAULT_PORTION)
             _uiState.value = SettingsUiState(
                 profile = profile,
                 vendors = vendors,
@@ -63,7 +67,9 @@ class SettingsViewModel @Inject constructor(
                 newVendorId = first.id,
                 newModel = first.defaultModel,
                 promptIdentify = promptIdentify,
-                promptSuggest = promptSuggest
+                promptSuggest = promptSuggest,
+                promptLabel = promptLabel,
+                promptPortion = promptPortion
             )
         }
     }
@@ -189,13 +195,27 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(promptSuggest = value) }
     }
 
+    fun setPromptLabel(value: String) {
+        apiKeyStore.setSetting("prompt_label", value)
+        _uiState.update { it.copy(promptLabel = value) }
+    }
+
+    fun setPromptPortion(value: String) {
+        apiKeyStore.setSetting("prompt_portion", value)
+        _uiState.update { it.copy(promptPortion = value) }
+    }
+
     fun resetPrompts() {
         apiKeyStore.setSetting("prompt_identify", OpenAiProvider.DEFAULT_IDENTIFY)
         apiKeyStore.setSetting("prompt_suggest", OpenAiProvider.DEFAULT_SUGGEST)
+        apiKeyStore.setSetting("prompt_label", OpenAiProvider.DEFAULT_LABEL)
+        apiKeyStore.setSetting("prompt_portion", OpenAiProvider.DEFAULT_PORTION)
         _uiState.update {
             it.copy(
                 promptIdentify = OpenAiProvider.DEFAULT_IDENTIFY,
                 promptSuggest = OpenAiProvider.DEFAULT_SUGGEST,
+                promptLabel = OpenAiProvider.DEFAULT_LABEL,
+                promptPortion = OpenAiProvider.DEFAULT_PORTION,
                 message = "已恢复默认提示语"
             )
         }
